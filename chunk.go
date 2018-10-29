@@ -11,12 +11,9 @@ import (
 const chunkSize = 8192
 
 type ChunkStore interface {
-	Store(uint64, []byte) error
-}
-
-type ChunkStream interface {
-	Next() bool
-	Chunk() ([]byte, error)
+	Add([]byte) error
+	Get(uint64) ([]byte, error)
+	Len() int
 }
 
 var errMissingChunk = errors.New("missing chunk")
@@ -39,7 +36,12 @@ func crypt(key [32]byte, chunk []byte, index uint64) {
 		hasher.Sum(subkey[:0])
 
 		pos := 32 * i
-		for j := offset; j < 32; j++ {
+		end := pos + 32
+		if end > len(chunk) {
+			end = len(chunk)
+		}
+
+		for j := offset; pos+j < end; j++ {
 			chunk[pos+j] ^= subkey[j]
 		}
 		offset = 0

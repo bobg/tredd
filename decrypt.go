@@ -11,22 +11,16 @@ import (
 	"github.com/chain/txvm/errors"
 )
 
-func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStream, key [32]byte) error {
+func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
 	hasher := sha256.New()
 
-	for index := uint64(0); ; index++ {
-		if !clearHashes.Next() {
-			break
-		}
-		wantClearHash, err := clearHashes.Chunk()
+	for index := uint64(0); index < uint64(clearHashes.Len()); index++ {
+		wantClearHash, err := clearHashes.Get(index)
 		if err != nil {
 			return errors.Wrapf(err, "getting clear hash %d", index)
 		}
 
-		if !cipherChunks.Next() {
-			return errors.Wrapf(errMissingChunk, "getting cipher chunk %d", index)
-		}
-		chunk, err := cipherChunks.Chunk()
+		chunk, err := cipherChunks.Get(index)
 		if err != nil {
 			return errors.Wrapf(err, "getting cipher chunk %d", index)
 		}

@@ -36,7 +36,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 		}
 
 		copy(clearHash2[:], clearHash1[:])
-		err = clearHashes.Store(index, clearHash1[:])
+		err = clearHashes.Add(clearHash1[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing clear hash %d", index)
 		}
@@ -62,7 +62,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			return nil, errors.Wrapf(errBadPrefix, "parsing cipher chunk %d", index)
 		}
 
-		err = cipherChunks.Store(index, cipherChunk[:n])
+		err = cipherChunks.Add(cipherChunk[:n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing cipher chunk %d", index)
 		}
@@ -71,7 +71,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 
 	gotClearRoot := clearMT.Root()
 	if !bytes.Equal(gotClearRoot, clearRoot[:]) {
-		return nil, errBadClearRoot
+		return nil, errors.Wrapf(errBadClearRoot, "got %x, want %x", gotClearRoot, clearRoot[:])
 	}
 
 	return cipherMT.Root(), nil
