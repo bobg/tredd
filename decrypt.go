@@ -12,7 +12,11 @@ import (
 )
 
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
-	hasher := sha256.New()
+	var (
+		hasher          = sha256.New()
+		chunkWithPrefix [chunkSize + binary.MaxVarintLen64]byte
+		gotClearHash    [32]byte
+	)
 
 	for index := uint64(0); index < uint64(clearHashes.Len()); index++ {
 		wantClearHash, err := clearHashes.Get(index)
@@ -24,21 +28,17 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		if err != nil {
 			return errors.Wrapf(err, "getting cipher chunk %d", index)
 		}
-		gotIndex, offset := binary.Uvarint(chunk)
-		if gotIndex != index {
-			return errors.Wrapf(errBadPrefix, "reading cipher chunk %d", index)
-		}
-		crypt(key, chunk[offset:], index)
+		crypt(key, chunk, index)
 
-		var gotClearHash [32]byte
-		merkle.LeafHash(hasher, gotClearHash[:0], chunk)
+		m := binary.PutUvarint(chunkWithPrefix[:], index)
+		copy(chunkWithPrefix[m:], chunk)
+
+		merkle.LeafHash(hasher, gotClearHash[:0], chunkWithPrefix[:m+len(chunk)])
 		if !bytes.Equal(gotClearHash[:], wantClearHash) {
 			return BadClearHashError{Index: index}
 		}
 
-		var indexBuf [binary.MaxVarintLen64]byte
-		offset = binary.PutUvarint(indexBuf[:], index)
-		_, err = w.Write(chunk[offset:])
+		_, err = w.Write(chunk)
 		if err != nil {
 			return errors.Wrapf(err, "writing clear chunk %d", index)
 		}

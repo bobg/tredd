@@ -14,15 +14,17 @@ import (
 // TODO: cleartext chunks and their hashes should be precomputed
 func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	var (
-		cipherMT = merkle.NewTree(sha256.New())
-		hasher   = sha256.New()
+		cipherMT            = merkle.NewTree(sha256.New())
+		hasher              = sha256.New()
+		chunkWithPrefix     [chunkSize + binary.MaxVarintLen64]byte
+		clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
 	)
 
 	for index := uint64(0); ; index++ {
-		var chunk [chunkSize + binary.MaxVarintLen64]byte
+		m := binary.PutUvarint(chunkWithPrefix[:], index)
+		binary.PutUvarint(clearHashWithPrefix[:], index)
 
-		n1 := binary.PutUvarint(chunk[:], index)
-		n2, err := io.ReadFull(r, chunk[n1:n1+chunkSize])
+		n, err := io.ReadFull(r, chunkWithPrefix[m:m+chunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
@@ -30,32 +32,20 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 		if err != nil && err != io.ErrUnexpectedEOF {
 			return nil, errors.Wrapf(err, "reading clear chunk %d", index)
 		}
-		n := n1 + n2
 
-		// The clearHash is prefixed with the index of the chunk.
-		// If a buyer has to prove that a cipherchunk is wrong,
-		// they'll have to show:
-		//   - the cipherchunk has index prefix M
-		//   - it is one of the cipherchunks sent by the seller
-		//     (via merkle proof)
-		//   - decrypting it with key K gives a clear chunk with hash H'
-		//   - H' does not match H
-		//   - H, with prefix M, is in the clear merkle tree
-		var clearHash [32 + binary.MaxVarintLen64]byte
-		n3 := binary.PutUvarint(clearHash[:], index)
-		merkle.LeafHash(hasher, clearHash[:n3], chunk[:n])
+		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunkWithPrefix[:m+n])
 
-		_, err = w.Write(clearHash[:n3+32])
+		_, err = w.Write(clearHashWithPrefix[m : m+32])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
 
-		crypt(key, chunk[n1:n], index) // n.b. overwrites the contents of chunk
-		_, err = w.Write(chunk[:n])
+		crypt(key, chunkWithPrefix[m:m+n], index) // n.b. overwrites the contents of chunk
+		_, err = w.Write(chunkWithPrefix[m : m+n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
 		}
-		cipherMT.Add(chunk[:n])
+		cipherMT.Add(chunkWithPrefix[:m+n])
 	}
 
 	return cipherMT.Root(), nil

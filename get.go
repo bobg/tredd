@@ -23,52 +23,33 @@ type reader interface {
 
 func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
-		wasPartial bool // only the final chunk may have a partial length.
-		clearMT    = merkle.NewTree(sha256.New())
-		cipherMT   = merkle.NewTree(sha256.New())
+		wasPartial            bool // only the final chunk may have a partial length.
+		clearMT               = merkle.NewTree(sha256.New())
+		cipherMT              = merkle.NewTree(sha256.New())
+		clearHashWithPrefix   [32 + binary.MaxVarintLen64]byte
+		cipherChunkWithPrefix [chunkSize + binary.MaxVarintLen64]byte
 	)
 
 	for index := uint64(0); ; index++ {
-		clearHashPrefix, err := binary.ReadUvarint(r)
+		m := binary.PutUvarint(clearHashWithPrefix[:], index)
+		binary.PutUvarint(cipherChunkWithPrefix[:], index)
+
+		_, err := io.ReadFull(r, clearHashWithPrefix[m:m+32])
 		if err == io.EOF {
+			// "The error is EOF only if no bytes were read."
 			break
 		}
-		if err != nil {
-			return nil, errors.Wrapf(err, "reading clear hash prefix %d", index)
-		}
-		if clearHashPrefix != index {
-			return nil, errors.Wrapf(errBadPrefix, "reading clear hash prefix %d", index)
-		}
-
-		var (
-			clearHash           [32]byte
-			clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
-		)
-
-		_, err = io.ReadFull(r, clearHash[:])
 		if err != nil { // including io.ErrUnexpectedEOF
 			return nil, errors.Wrapf(err, "reading clear hash %d", index)
 		}
 
-		n := binary.PutUvarint(clearHashWithPrefix[:], index)
-		copy(clearHashWithPrefix[n:], clearHash[:])
-
-		err = clearHashes.Add(clearHash[:])
+		err = clearHashes.Add(clearHashWithPrefix[m : m+32])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing clear hash %d", index)
 		}
-		clearMT.Add(clearHashWithPrefix[:n+32])
+		clearMT.Add(clearHashWithPrefix[:m+32])
 
-		var cipherChunk [chunkSize + binary.MaxVarintLen64]byte
-		gotIndex, err := binary.ReadUvarint(r)
-		if err != nil {
-			return nil, errors.Wrapf(err, "reading cipher chunk prefix %d", index)
-		}
-		if gotIndex != index {
-			return nil, errors.Wrapf(errBadPrefix, "reading cipher chunk %d", index)
-		}
-		n1 := binary.PutUvarint(cipherChunk[:], index)
-		n2, err := io.ReadFull(r, cipherChunk[n1:n1+chunkSize])
+		n, err := io.ReadFull(r, cipherChunkWithPrefix[m:m+chunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			return nil, errors.Wrapf(errMissingChunk, "reading chunk %d", index)
@@ -81,13 +62,12 @@ func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]
 		} else if err != nil {
 			return nil, errors.Wrapf(err, "reading cipher chunk %d", index)
 		}
-		n = n1 + n2
 
-		err = cipherChunks.Add(cipherChunk[:n])
+		err = cipherChunks.Add(cipherChunkWithPrefix[m : m+n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing cipher chunk %d", index)
 		}
-		cipherMT.Add(cipherChunk[:n])
+		cipherMT.Add(cipherChunkWithPrefix[:m+n])
 	}
 
 	gotClearRoot := clearMT.Root()
