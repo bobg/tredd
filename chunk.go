@@ -2,7 +2,6 @@ package tedd
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/txvm"
@@ -19,9 +18,6 @@ type ChunkStore interface {
 var errMissingChunk = errors.New("missing chunk")
 
 func crypt(key [32]byte, chunk []byte, index uint64) {
-	var indexBuf [binary.MaxVarintLen64]byte
-	offset := binary.PutUvarint(indexBuf[:], index)
-
 	var (
 		hasher = sha256.New()
 		subkey [32]byte
@@ -41,9 +37,8 @@ func crypt(key [32]byte, chunk []byte, index uint64) {
 			end = len(chunk)
 		}
 
-		for j := offset; pos+j < end; j++ {
+		for j := 0; pos+j < end; j++ {
 			chunk[pos+j] ^= subkey[j]
 		}
-		offset = 0
 	}
 }

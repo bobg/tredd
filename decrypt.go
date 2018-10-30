@@ -24,7 +24,11 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		if err != nil {
 			return errors.Wrapf(err, "getting cipher chunk %d", index)
 		}
-		crypt(key, chunk, index)
+		gotIndex, offset := binary.Uvarint(chunk)
+		if gotIndex != index {
+			return errors.Wrapf(errBadPrefix, "reading cipher chunk %d", index)
+		}
+		crypt(key, chunk[offset:], index)
 
 		var gotClearHash [32]byte
 		merkle.LeafHash(hasher, gotClearHash[:0], chunk)
@@ -33,7 +37,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		}
 
 		var indexBuf [binary.MaxVarintLen64]byte
-		offset := binary.PutUvarint(indexBuf[:], index)
+		offset = binary.PutUvarint(indexBuf[:], index)
 		_, err = w.Write(chunk[offset:])
 		if err != nil {
 			return errors.Wrapf(err, "writing clear chunk %d", index)

@@ -19,10 +19,10 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	)
 
 	for index := uint64(0); ; index++ {
-		var chunk [chunkSize]byte
+		var chunk [chunkSize + binary.MaxVarintLen64]byte
 
 		n1 := binary.PutUvarint(chunk[:], index)
-		n2, err := io.ReadFull(r, chunk[n1:])
+		n2, err := io.ReadFull(r, chunk[n1:n1+chunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
@@ -50,7 +50,7 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
 
-		crypt(key, chunk[:n], index) // n.b. overwrites the contents of chunk
+		crypt(key, chunk[n1:n], index) // n.b. overwrites the contents of chunk
 		_, err = w.Write(chunk[:n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
