@@ -32,10 +32,20 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 		}
 		n := n1 + n2
 
-		var clearHash [32]byte
-		merkle.LeafHash(hasher, clearHash[:0], chunk[:n])
+		// The clearHash is prefixed with the index of the chunk.
+		// If a buyer has to prove that a cipherchunk is wrong,
+		// they'll have to show:
+		//   - the cipherchunk has index prefix M
+		//   - it is one of the cipherchunks sent by the seller
+		//     (via merkle proof)
+		//   - decrypting it with key K gives a clear chunk with hash H'
+		//   - H' does not match H
+		//   - H, with prefix M, is in the clear merkle tree
+		var clearHash [32 + binary.MaxVarintLen64]byte
+		n3 := binary.PutUvarint(clearHash[:], index)
+		merkle.LeafHash(hasher, clearHash[:n3], chunk[:n])
 
-		_, err = w.Write(clearHash[:])
+		_, err = w.Write(clearHash[:n3+32])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}

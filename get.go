@@ -16,34 +16,51 @@ var (
 	errPartial      = errors.New("partial non-final chunk")
 )
 
-func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
+type reader interface {
+	io.Reader
+	io.ByteReader
+}
+
+func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
 		wasPartial bool // only the final chunk may have a partial length.
-		clearMT    = merkle.NewHTree(sha256.New())
+		clearMT    = merkle.NewTree(sha256.New())
 		cipherMT   = merkle.NewTree(sha256.New())
 	)
 
 	for index := uint64(0); ; index++ {
-		var clearHash1, clearHash2 [32]byte
-
-		_, err := io.ReadFull(r, clearHash1[:])
+		clearHashPrefix, err := binary.ReadUvarint(r)
 		if err == io.EOF {
-			// "The error is EOF only if no bytes were read."
 			break
 		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading clear hash prefix %d", index)
+		}
+		if clearHashPrefix != index {
+			return nil, errors.Wrapf(errBadPrefix, "reading clear hash prefix %d", index)
+		}
+
+		var (
+			clearHash           [32]byte
+			clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
+		)
+
+		_, err = io.ReadFull(r, clearHash[:])
 		if err != nil { // including io.ErrUnexpectedEOF
 			return nil, errors.Wrapf(err, "reading clear hash %d", index)
 		}
 
-		copy(clearHash2[:], clearHash1[:])
-		err = clearHashes.Add(clearHash1[:])
+		n := binary.PutUvarint(clearHashWithPrefix[:], index)
+		copy(clearHashWithPrefix[n:], clearHash[:])
+
+		err = clearHashes.Add(clearHash[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing clear hash %d", index)
 		}
-		clearMT.Add(clearHash2[:])
+		clearMT.Add(clearHashWithPrefix[:n+32])
 
 		var cipherChunk [chunkSize]byte
-		n, err := io.ReadFull(r, cipherChunk[:])
+		n, err = io.ReadFull(r, cipherChunk[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			return nil, errors.Wrapf(errMissingChunk, "reading chunk %d", index)
