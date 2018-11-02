@@ -10,6 +10,7 @@ import (
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txbuilder/standard"
+	"github.com/chain/txvm/protocol/txvm"
 	"github.com/chain/txvm/protocol/txvm/asm"
 	"github.com/chain/txvm/protocol/txvm/op"
 	"github.com/chain/txvm/protocol/txvm/txvmutil"
@@ -40,7 +41,24 @@ func BuildPartialPaymentTx(
 	if reservation.Change() > 0 {
 		teddLogPos += 3 // one 'O' and two 'L' log entries
 		fmt.Fprintf(buf, "%d peeklog\n", teddLogPos-1)
-		// xxx make sure it's {'O', x'0000...', outputID} (compute the right outputID)
+
+		// Have to make sure this log entry is {'O', x'0000....', outputID}.
+		// Computing the right outputID means simulating the merges and the split below to get the change value's anchor.
+
+		var anchor [32]byte
+		copy(anchor[:], utxos[0].Anchor())
+
+		for i := 1; i < len(utxos); i++ {
+			var inp [64]byte
+			copy(inp[:32], anchor[:])
+			copy(inp[32:], utxos[i].Anchor())
+			anchor = txvm.VMHash("Merge", inp[:])
+		}
+
+		anchor = txvm.VMHash("Split2", anchor[:])
+
+		// xxx left off here
+		// xxx refactor standard.SpendMultisig to get the snapshot tuple; hashing that gives the outputid
 	}
 
 	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
