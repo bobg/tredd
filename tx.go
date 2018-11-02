@@ -6,24 +6,18 @@ import (
 	"fmt"
 	"time"
 
-	"i10r.io/crypto/ed25519"
-	"i10r.io/protocol/bc"
-	"i10r.io/protocol/txbuilder/standard"
-	"i10r.io/protocol/txvm/asm"
-	"i10r.io/protocol/txvm/op"
-	"i10r.io/protocol/txvm/txvmutil"
+	"github.com/chain/txvm/crypto/ed25519"
+	"github.com/chain/txvm/errors"
+	"github.com/chain/txvm/protocol/bc"
+	"github.com/chain/txvm/protocol/txbuilder/standard"
+	"github.com/chain/txvm/protocol/txvm/asm"
+	"github.com/chain/txvm/protocol/txvm/op"
+	"github.com/chain/txvm/protocol/txvm/txvmutil"
 )
-
-type Payee struct {
-	Quorum  int
-	Pubkeys []ed25519.PublicKey
-	Refdata []byte
-	Tags    []byte
-}
 
 func BuildPartialPaymentTx(
 	ctx context.Context,
-	buyer Payee,
+	buyer ed25519.PublicKey,
 	amount int64,
 	assetID bc.Hash,
 	clearRoot, cipherRoot [32]byte,
@@ -32,20 +26,19 @@ func BuildPartialPaymentTx(
 ) ([]byte, error) {
 	reservation, err := reserver.Reserve(ctx, amount, assetID)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "reserving utxos")
 	}
 
 	// Where the TEDD contract log entries start.
-	teddLogPos := int64(len(reservations.UTXOs))
-	if reservation.Change > 0 {
-		teddLogPos++
-	}
+	utxos := reservation.UTXOs()
+	teddLogPos := 2 * int64(len(utxos)) // one 'I' and one 'L' log entry per standard input
 
 	// With the knowledge of the input args and the TEDD log position,
 	// construct the signature program for spending these utxos.
 	buf := new(bytes.Buffer)
-	// Make sure change is sent to the right place.
-	if reservation.Change > 0 {
+
+	if reservation.Change() > 0 {
+		teddLogPos += 3 // one 'O' and two 'L' log entries
 		fmt.Fprintf(buf, "%d peeklog\n", teddLogPos-1)
 		// xxx make sure it's {'O', x'0000...', outputID} (compute the right outputID)
 	}
@@ -69,7 +62,8 @@ func BuildPartialPaymentTx(
 	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
-	// xxx check buyer
+	fmt.Fprintf(buf, "x'%x' eq verify\n", buyer)
+	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+5)
 	fmt.Fprintf(buf, "%d eq verify\n", amount)
@@ -81,7 +75,7 @@ func BuildPartialPaymentTx(
 
 	sigprog, err := asm.Assemble(buf.String())
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "assembling signature program")
 	}
 
 	anchoredSigprog := make([]byte, 32+len(sigprog))
@@ -89,27 +83,16 @@ func BuildPartialPaymentTx(
 
 	b := new(txvmutil.Builder)
 	for i, utxo := range reservation.UTXOs {
-		standard.SpendMultisig(b, xxxquorum, xxxpubkeys, utxo.Amount, utxo.AssetID, utxo.Anchor, standard.PayToMultisigSeed2[:])
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, utxo.Amount, utxo.AssetID, utxo.Anchor, standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
 		b.Op(op.Get) // contract stack: [<deferred contract>] arg stack: [<value>]
 
 		copy(anchoredSigprog[len(sigprog):], utxo.Anchor) // this is what to sign
-		q := xxxquorum
-		for _, pubkey := range xxxpubkeys {
-			var sig []byte
-			if q > 0 {
-				if prv := xxxcansign(pubkey); prv != nil {
-					sig = ed25519.Sign(prv, anchoredSigprog)
-					q--
-				}
-			}
-			b.PushdataBytes(sig).Op(op.Put)
-		}
-		if q > 0 {
-			// xxx err - too few sigs
-		}
+		sig := signer(anchoredSigprog)
+		b.PushdataBytes(sig).Op(op.Put)
 		b.PushdataBytes(sigprog).Op(op.Put)
 		b.Op(op.Call)
+
 		b.Op(op.Get) // get the value from the arg stack
 		if i > 0 {
 			b.Op(op.Merge)
@@ -117,13 +100,19 @@ func BuildPartialPaymentTx(
 	}
 	if reservation.Change > 0 {
 		b.PushdataInt64(reservation.Change).Op(op.Split)
-		// xxx output top value to buyer
+
+		b.PushdataBytes(nil).Op(op.Put)
+		b.PushdataBytes(nil).Op(op.Put)
+		b.Op(op.Put)
+		b.PushdataBytes(buyer).PushdataInt64(1).Op(op.Tuple).Op(op.Put)
+		b.PushdataInt64(1).Op(op.Put)
+		b.Concat(PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
 	b.PushdataBytes(xxxTEDDContract).Op(op.Contract)
 
 	b.Op(op.Put) // payment, which was already on the contract stack
-	// xxx put buyer
+	b.PushdataBytes(buyer).Op(op.Put)
 	b.PushdataBytes(clearRoot[:]).Op(op.Put)
 	b.PushdataBytes(cipherRoot[:]).Op(op.Put)
 	b.PushdataInt64(refundDeadline.Unix()).Op(op.Put)
@@ -131,5 +120,5 @@ func BuildPartialPaymentTx(
 
 	b.Op(op.Call)
 
-	return b.Build()
+	return b.Build(), nil
 }
