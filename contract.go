@@ -63,7 +63,6 @@ var merkleCheckProg = mustAssemble(merkleCheckSrc)
 const decryptSrc = `
                        #  con stack                                                      arg stack  log  notes
                        #  ---------                                                      ---------  ---  -----
-                       #  contract stack                                                 arg stack  log  notes
                        #  key index msg                                                                  
 0 ''                   #  key index msg 0 ''                                                             
 2 roll                 #  key index 0 '' msg                                                             
@@ -90,7 +89,6 @@ dup                    #  key index subindex output msg subkey msglen msglen
 32                     #  key index subindex output msg subkey msglen msglen 32                          
 lt                     #  key index subindex output msg subkey msglen msglen<32                          
 jumpif:$finalsubchunk  #  key index subindex output msg subkey msglen                                    
-dup                    #  key index subindex output msg subkey msglen msglen                             
 2 roll                 #  key index subindex output subkey msglen msg                                    
 dup                    #  key index subindex output subkey msglen msg msg                                
 0 32                   #  key index subindex output subkey msglen msg msg 0 32                           
