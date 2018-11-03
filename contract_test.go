@@ -45,7 +45,7 @@ func TestMerkleCheck(t *testing.T) {
 		root := tree.Root()
 		proof := tree.Proof()
 
-		prog := merkleCheckProg(proof, root, refchunk)
+		prog := testMerkleCheckProg(proof, root, refchunk)
 
 		_, err := txvm.Validate(prog, 3, math.MaxInt64)
 		if err != nil {
@@ -54,7 +54,7 @@ func TestMerkleCheck(t *testing.T) {
 	}
 }
 
-func merkleCheckProg(proof merkle.Proof, wantRoot, refchunk []byte) []byte {
+func testMerkleCheckProg(proof merkle.Proof, wantRoot, refchunk []byte) []byte {
 	b := new(txvmutil.Builder)
 	b.PushdataBytes(wantRoot)
 	b.Tuple(func(b *txvmutil.TupleBuilder) {
@@ -68,7 +68,7 @@ func merkleCheckProg(proof merkle.Proof, wantRoot, refchunk []byte) []byte {
 		}
 	})
 	b.PushdataBytes(refchunk)
-	b.PushdataBytes(merkleCheck).Op(op.Exec)
+	b.PushdataBytes(merkleCheckProg).Op(op.Exec)
 	b.PushdataBytes([]byte{}).PushdataInt64(0).Op(op.Nonce)
 	b.Op(op.Finalize)
 

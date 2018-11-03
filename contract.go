@@ -20,11 +20,11 @@ x'%x' contract call  #  refundDeadline                                          
 `
 
 var (
-	senderCollectsStr = fmt.Sprintf(senderCollectsFmt, standard.PayToMultisigProg2)
-	senderCollects    = mustAssemble(senderCollectsStr)
+	senderCollectsSrc  = fmt.Sprintf(senderCollectsFmt, standard.PayToMultisigProg2)
+	senderCollectsProg = mustAssemble(senderCollectsSrc)
 )
 
-const merkleCheckStr = `
+const merkleCheckSrc = `
                     #  con stack                                              arg stack  log  notes
                     #  ---------                                              ---------  ---  -----
                     #  wanthash {hash isleft hash isleft ...} leaf                            A merkle proof is a list of hash/isleft pairs, supplied here as a flat tuple. When checking, pairs are consumed from right to left. Note, this is the opposite of the order in github.com/bobg/merkle.Proof.
@@ -58,7 +58,66 @@ drop                #  wanthash gothash
 eq verify           #                                                                         
 `
 
-var merkleCheck = mustAssemble(merkleCheckStr)
+var merkleCheckProg = mustAssemble(merkleCheckSrc)
+
+const decryptSrc = `
+                       #  con stack                                                      arg stack  log  notes
+                       #  ---------                                                      ---------  ---  -----
+                       #  contract stack                                                 arg stack  log  notes
+                       #  key index msg                                                                  
+0 ''                   #  key index msg 0 ''                                                             
+2 roll                 #  key index 0 '' msg                                                             
+$loop                  #                                                                                 
+dup len dup            #  key index subindex output msg msglen msglen                                    
+0 eq                   #  key index subindex output msg msglen msglen==0                                 
+jumpif:$cleanup1       #  key index subindex output msg msglen                                           
+5 roll                 #  index subindex output msg msglen key                                           
+dup                    #  index subindex output msg msglen key key                                       
+6 bury                 #  key index subindex output msg msglen key                                       
+5 roll                 #  key subindex output msg msglen key index                                       
+dup                    #  key subindex output msg msglen key index index                                 
+6 bury                 #  key index subindex output msg msglen key index                                 
+encode                 #  key index subindex output msg msglen key indexstr                              
+cat                    #  key index subindex output msg msglen key+indexstr                              
+4 roll                 #  key index output msg msglen key+indexstr subindex                              
+dup                    #  key index output msg msglen key+indexstr subindex subindex                     
+5 bury                 #  key index subindex output msg msglen key+indexstr subindex                     
+encode                 #  key index subindex output msg msglen key+indexstr subindexstr                  
+cat                    #  key index subindex output msg msglen key+indexstr+subindexstr                  
+sha256                 #  key index subindex output msg msglen subkey                                    
+swap                   #  key index subindex output msg subkey msglen                                    
+dup                    #  key index subindex output msg subkey msglen msglen                             
+32                     #  key index subindex output msg subkey msglen msglen 32                          
+lt                     #  key index subindex output msg subkey msglen msglen<32                          
+jumpif:$finalsubchunk  #  key index subindex output msg subkey msglen                                    
+dup                    #  key index subindex output msg subkey msglen msglen                             
+2 roll                 #  key index subindex output subkey msglen msg                                    
+dup                    #  key index subindex output subkey msglen msg msg                                
+0 32                   #  key index subindex output subkey msglen msg msg 0 32                           
+slice                  #  key index subindex output subkey msglen msg msg[:32]                           
+3 roll                 #  key index subindex output msglen msg msg[:32] subkey                           
+bitxor                 #  key index subindex output msglen msg decryptedsubchunk                         
+3 roll                 #  key index subindex msglen msg decryptedsubchunk output                         
+swap cat               #  key index subindex msglen msg output'                                          
+2 bury                 #  key index subindex output' msglen msg                                          
+32                     #  key index subindex output' msglen msg 32                                       
+2 roll                 #  key index subindex output' msg 32 msglen                                       
+slice                  #  key index subindex output' msg[32:]                                            
+jump:$loop             #                                                                                 
+$finalsubchunk         #  key index subindex output msg subkey msglen                                    
+0 swap                 #  key index subindex output msg subkey 0 msglen                                  
+slice                  #  key index subindex output msg subkey[:msglen]                                  
+bitxor                 #  key index subindex output decryptedfinalsubchunk                               
+cat                    #  key index subindex output'                                                     
+jump:$cleanup2         #                                                                                 
+$cleanup1              #  key index subindex output msg msglen                                           
+drop drop              #  key index subindex output                                                      
+$cleanup2              #  key index subindex output                                                      
+3 bury                 #  output key index subindex                                                      
+drop drop drop         #  output                                                                         
+`
+
+var decryptProg = mustAssemble(decryptSrc)
 
 func mustAssemble(s string) []byte {
 	prog, err := asm.Assemble(s)
