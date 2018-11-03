@@ -1,5 +1,12 @@
 package tedd
 
+import (
+	"context"
+	"time"
+
+	"github.com/chain/txvm/protocol/bc"
+)
+
 type UTXO interface {
 	Amount() int64
 	AssetID() bc.Hash

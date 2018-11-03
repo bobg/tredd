@@ -16,6 +16,8 @@ import (
 	"github.com/chain/txvm/protocol/txvm/txvmutil"
 )
 
+type Signer func([]byte) ([]byte, error)
+
 func BuildPartialPaymentTx(
 	ctx context.Context,
 	buyer ed25519.PublicKey,
@@ -24,8 +26,9 @@ func BuildPartialPaymentTx(
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
 	reserver Reserver,
+	signer Signer,
 ) ([]byte, error) {
-	reservation, err := reserver.Reserve(ctx, amount, assetID)
+	reservation, err := reserver.Reserve(ctx, amount, assetID, revealDeadline)
 	if err != nil {
 		return nil, errors.Wrap(err, "reserving utxos")
 	}
@@ -58,7 +61,7 @@ func BuildPartialPaymentTx(
 		anchor = txvm.VMHash("Split2", anchor[:])
 
 		b := new(txvmutil.Builder)
-		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2)
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2[:])
 		snapshot := b.Build()
 
 		// This lops off the "input" and "call" opcodes at the end of standard.SpendMultisig.
@@ -75,7 +78,7 @@ func BuildPartialPaymentTx(
 	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
 	fmt.Fprintf(buf, "3 eq verify\n")
 	fmt.Fprintf(buf, "2 roll 'L' eq verify\n")
-	fmt.Fprintf(buf, "swap x'%x' eq verify\n", xxxTEDDContractSeed)
+	fmt.Fprintf(buf, "swap x'%x' eq verify\n", []byte{}) // xxx TEDDContractSeed
 	fmt.Fprintf(buf, "%d eq verify\n", revealDeadline.Unix())
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+1)
@@ -99,7 +102,7 @@ func BuildPartialPaymentTx(
 	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+6)
-	fmt.Fprintf(buf, "x'%x' eq verify\n", assetID[:])
+	fmt.Fprintf(buf, "x'%x' eq verify\n", assetID.Bytes())
 	fmt.Fprintf(buf, "drop drop\n")
 
 	sigprog, err := asm.Assemble(buf.String())
@@ -111,13 +114,16 @@ func BuildPartialPaymentTx(
 	copy(anchoredSigprog, sigprog)
 
 	b := new(txvmutil.Builder)
-	for i, utxo := range reservation.UTXOs {
-		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, utxo.Amount, utxo.AssetID, utxo.Anchor, standard.PayToMultisigSeed2[:])
+	for i, utxo := range reservation.UTXOs() {
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
 		b.Op(op.Get) // contract stack: [<deferred contract>] arg stack: [<value>]
 
-		copy(anchoredSigprog[len(sigprog):], utxo.Anchor) // this is what to sign
-		sig := signer(anchoredSigprog)
+		copy(anchoredSigprog[len(sigprog):], utxo.Anchor()) // this is what to sign
+		sig, err := signer(anchoredSigprog)
+		if err != nil {
+			return nil, errors.Wrap(err, "signing input")
+		}
 		b.PushdataBytes(sig).Op(op.Put)
 		b.PushdataBytes(sigprog).Op(op.Put)
 		b.Op(op.Call)
@@ -127,18 +133,18 @@ func BuildPartialPaymentTx(
 			b.Op(op.Merge)
 		}
 	}
-	if reservation.Change > 0 {
-		b.PushdataInt64(reservation.Change).Op(op.Split)
+	if reservation.Change() > 0 {
+		b.PushdataInt64(reservation.Change()).Op(op.Split)
 
 		b.PushdataBytes(nil).Op(op.Put)
 		b.PushdataBytes(nil).Op(op.Put)
 		b.Op(op.Put)
 		b.PushdataBytes(buyer).PushdataInt64(1).Op(op.Tuple).Op(op.Put)
 		b.PushdataInt64(1).Op(op.Put)
-		b.Concat(PayToMultisigProg2).Op(op.Contract).Op(op.Call)
+		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
-	b.PushdataBytes(xxxTEDDContract).Op(op.Contract)
+	b.PushdataBytes(nil /* xxx TEDDContract */).Op(op.Contract)
 
 	b.Op(op.Put) // payment, which was already on the contract stack
 	b.PushdataBytes(buyer).Op(op.Put)
