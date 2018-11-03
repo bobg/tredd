@@ -40,9 +40,9 @@ func BuildPartialPaymentTx(
 
 	if reservation.Change() > 0 {
 		teddLogPos += 3 // one 'O' and two 'L' log entries
-		fmt.Fprintf(buf, "%d peeklog\n", teddLogPos-1)
+		fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos-1)
 
-		// Have to make sure this log entry is {'O', x'0000....', outputID}.
+		// Have to make sure this log entry is {'O', seed, outputID}.
 		// Computing the right outputID means simulating the merges and the split below to get the change value's anchor.
 
 		var anchor [32]byte
@@ -57,8 +57,19 @@ func BuildPartialPaymentTx(
 
 		anchor = txvm.VMHash("Split2", anchor[:])
 
-		// xxx left off here
-		// xxx refactor standard.SpendMultisig to get the snapshot tuple; hashing that gives the outputid
+		b := new(txvmutil.Builder)
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2)
+		snapshot := b.Build()
+
+		// This lops off the "input" and "call" opcodes at the end of standard.SpendMultisig.
+		// TODO: refactor SpendMultisig to make the snapshot tuple available separately.
+		snapshot = snapshot[:len(snapshot)-2]
+		outputID := txvm.VMHash("SnapshotID", snapshot)
+
+		fmt.Fprintf(buf, "3 eq verify\n")
+		fmt.Fprintf(buf, "x'%x' eq verify\n", outputID[:])
+		fmt.Fprintf(buf, "x'%x' eq verify\n", standard.PayToMultisigSeed2[:])
+		fmt.Fprintf(buf, "'O' eq verify\n")
 	}
 
 	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
