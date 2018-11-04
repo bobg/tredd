@@ -1,0 +1,51 @@
+Current version of the tedd contract:
+
+002d4d2d513c2d513c2d513c2d513c2d353c363c373cbc04350223012a2d31373c35012a042b50402d513c2d513ca3042d015060612041052b525252012a52af015f2e5f2e2e01542e012e9f012d2d2d2d3c2d3c95012d3c37012a2e8c01012a552d51025303212a5900032a51005013410253052a2d003b022a21012a0122210118224152032a5040524244474843004d420161dc02204152b7032d51022b202d51052bc101005f022a5156510050604e2041052a51062b052a51062b5859042a51052b585939012a51602020012a2660242041022a51006020205a032a5e032a012a59022b602020022a5a022a0121022b01604e20224100012a5a5e590102415252032b525252426000022a5151042b062b59012a59392d51022b502740592d012a99016000012a5939012a55510050602720415101212a032a032a270241012a596001012a5939012a02222151022a012a01212b01602e20224152504042592d012a99016000012a5939012a55510050602720415101212a032a032a270241012a596001012a5939012a02222151022a012a01212b01602e202241525040425f2e5f2e2e01542e012e9f012d2d2d2d3c2d3c95012d3c37012a2e8c01012a552d51025303212a5900032a51005013410253052a2d003b022a21012a0122210118224152032a504052424447484300012a4d424744
+
+0 get timerange get dup log get dup log get dup log get dup log get amount log assetid log anchor log
+[
+  amount 2 mul swap get merge anchor log amount swap 4 bury eq verify get dup log get dup log
+  [
+    get 1 eq 97 jumpif 5 bury drop drop drop swap drop
+    [
+      '' put '' put put 1 tuple put 1 put
+      [
+        get get get get log get log
+        [
+          get log anchor swap put
+          [
+            swap untuple get dup 2 peek 3 add roll cat 0 3 roll dup 0 eq 19 jumpif 2 peek 5 roll get 0 checksig 2 roll add swap -1 add 1 -24 jumpif drop 3 roll eq verify drop exec
+          ] yield
+        ] output
+      ] contract call
+      0 timerange
+    ] exec
+    1 348 jumpif
+    drop
+    [
+      get dup 2 bury int get dup 5 bury
+      [
+        0 '' 2 roll dup len dup 0 eq 78 jumpif 5 roll dup 6 bury 5 roll dup 6 bury encode cat 4 roll dup 5 bury encode cat sha256 swap dup 32 lt 36 jumpif 2 roll dup 0 32 slice 3 roll bitxor 3 roll swap cat 2 bury 32 2 roll slice 2 roll 1 add 2 bury 1 -78 jumpif 0 swap slice bitxor cat 1 2 jumpif drop drop 3 bury drop drop drop
+      ] exec
+      x'00' 2 roll dup dup 4 bury 6 bury cat swap cat sha256 get dup 2 bury eq not verify cat get swap
+      [
+        x'00' swap cat sha256 swap untuple dup 0 eq 39 jumpif dup 1 add roll 3 roll 3 roll not 2 jumpif swap cat x'01' swap cat sha256 swap -2 add dup 2 roll swap 1 add bury 1 -46 jumpif drop eq verify
+      ] exec
+      cat get swap
+      [
+        x'00' swap cat sha256 swap untuple dup 0 eq 39 jumpif dup 1 add roll 3 roll 3 roll not 2 jumpif swap cat x'01' swap cat sha256 swap -2 add dup 2 roll swap 1 add bury 1 -46 jumpif drop eq verify
+      ] exec
+      '' put '' put put 1 tuple put 1 put
+      [
+        get get get get log get log
+        [
+          get log anchor swap put
+          [
+            swap untuple get dup 2 peek 3 add roll cat 0 3 roll dup 0 eq 19 jumpif 2 peek 5 roll get 0 checksig 2 roll add swap -1 add 1 -24 jumpif drop 3 roll eq verify drop exec
+          ] yield
+        ] output
+      ] contract call
+      0 swap timerange
+    ] exec
+  ] output
+] yield

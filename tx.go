@@ -76,13 +76,18 @@ func BuildPartialPaymentTx(
 	}
 
 	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
-	fmt.Fprintf(buf, "3 eq verify\n")
-	fmt.Fprintf(buf, "2 roll 'L' eq verify\n")
-	fmt.Fprintf(buf, "swap x'%x' eq verify\n", []byte{}) // xxx TEDDContractSeed
+	fmt.Fprintf(buf, "4 eq verify\n")
+	fmt.Fprintf(buf, "3 roll 'R' eq verify\n") // xxx use txvm.TimerangeCode and other such constants
+	fmt.Fprintf(buf, "2 roll x'%x' eq verify\n", teddContractSeed[:])
 	fmt.Fprintf(buf, "%d eq verify\n", revealDeadline.Unix())
+	fmt.Fprintf(buf, "0 eq verify\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+1)
 	fmt.Fprintf(buf, "%d eq verify\n", refundDeadline.Unix())
+	fmt.Fprintf(buf, "drop drop\n")
+
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
+	fmt.Fprintf(buf, "x'%x' eq verify\n", buyer)
 	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+2)
@@ -91,10 +96,6 @@ func BuildPartialPaymentTx(
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+3)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", clearRoot[:])
-	fmt.Fprintf(buf, "drop drop\n")
-
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
-	fmt.Fprintf(buf, "x'%x' eq verify\n", buyer)
 	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+5)
@@ -144,12 +145,12 @@ func BuildPartialPaymentTx(
 		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
-	b.PushdataBytes(nil /* xxx TEDDContract */).Op(op.Contract)
+	b.PushdataBytes(teddContractProg).Op(op.Contract)
 
 	b.Op(op.Put) // payment, which was already on the contract stack
-	b.PushdataBytes(buyer).Op(op.Put)
 	b.PushdataBytes(clearRoot[:]).Op(op.Put)
 	b.PushdataBytes(cipherRoot[:]).Op(op.Put)
+	b.PushdataBytes(buyer).Op(op.Put)
 	b.PushdataInt64(refundDeadline.Unix()).Op(op.Put)
 	b.PushdataInt64(revealDeadline.Unix()).Op(op.Put)
 
