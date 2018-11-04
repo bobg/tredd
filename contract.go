@@ -101,6 +101,9 @@ swap cat               #  key index subindex msglen msg output'
 32                     #  key index subindex output' msglen msg 32                                       
 2 roll                 #  key index subindex output' msg 32 msglen                                       
 slice                  #  key index subindex output' msg[32:]                                            
+2 roll                 #  key index output' msg[32:] subindex
+1 add                  #  key index output' msg[32:] subindex+1
+2 bury                 #  key index subindex+1 output' msg[32:]
 jump:$loop             #                                                                                 
 $finalsubchunk         #  key index subindex output msg subkey msglen                                    
 0 swap                 #  key index subindex output msg subkey 0 msglen                                  
