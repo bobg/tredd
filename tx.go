@@ -18,7 +18,8 @@ import (
 
 type Signer func([]byte) ([]byte, error)
 
-func BuildPartialPaymentTx(
+// ProposePayment constructs a partial transaction in which the buyer commits funds to the tedd contract.
+func ProposePayment(
 	ctx context.Context,
 	buyer ed25519.PublicKey,
 	amount int64,
@@ -40,6 +41,8 @@ func BuildPartialPaymentTx(
 	// With the knowledge of the input args and the TEDD log position,
 	// construct the signature program for spending these utxos.
 	buf := new(bytes.Buffer)
+
+	fmt.Fprint(buf, "[")
 
 	if reservation.Change() > 0 {
 		teddLogPos += 3 // one 'O' and two 'L' log entries
@@ -106,6 +109,8 @@ func BuildPartialPaymentTx(
 	fmt.Fprintf(buf, "x'%x' eq verify\n", assetID.Bytes())
 	fmt.Fprintf(buf, "drop drop\n")
 
+	fmt.Fprint(buf, "] yield")
+
 	sigprog, err := asm.Assemble(buf.String())
 	if err != nil {
 		return nil, errors.Wrap(err, "assembling signature program")
@@ -156,5 +161,74 @@ func BuildPartialPaymentTx(
 
 	b.Op(op.Call)
 
+	// con stack is now empty
+	// arg stack is sigprog sigprog ... teddcontract (all deferred)
+
+	b.Op(op.Get) // move tedd contract back to con stack
+
+	// Now that the first phase of the tedd contract has run and begun to populate the tx log,
+	// the sig progs, which check the log, can run.
+	for i := 0; i < len(reservation.UTXOs()); i++ {
+		b.Op(op.Get).Op(op.Call)
+	}
+
 	return b.Build(), nil
+}
+
+// RevealKey completes the partial transaction in paymentProposal (which came from ProposePayment).
+// The tedd contract is on the con stack. The arg stack is empty.
+func RevealKey(
+	ctx context.Context,
+	paymentProposal []byte,
+	seller ed25519.PublicKey,
+	key [32]byte,
+	amount int64,
+	assetID bc.Hash,
+	reserver Reserver,
+	signer Signer,
+	wantClearRoot, wantCipherRoot [32]byte,
+	wantRevealDeadline, wantRefundDeadline time.Time,
+) ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	fmt.Fprintf(buf, "x'%x' put\n", seller)
+	fmt.Fprintf(buf, "x'%x' put\n", key[:])
+
+	// xxx check paymentProposal's params against "want" values
+	reservation, err := reserver.Reserve(ctx, amount, assetID, wantRevealDeadline)
+	if err != nil {
+		return nil, errors.Wrap(err, "reserving utxos")
+	}
+
+	b := new(txvmutil.Builder)
+
+	for i, utxo := range reservation.UTXOs() {
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{seller}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
+		// arg stack: [<value> <deferred contract>]
+		b.Op(op.Get).Op(op.Get)
+		b.PushdataInt64(1).Op(op.Roll)
+		b.Op(op.Put)
+		if i > 0 {
+			b.Op(op.Merge)
+		}
+	}
+	// con stack: teddcontract collateral
+	// arg stack: sigcheck sigcheck ...
+	if reservation.Change() > 0 {
+		b.PushdataInt64(reservation.Change()).Op(op.Split)
+		// con stack: teddcontract collateral change
+		b.PushdataBytes([]byte{}).Op(op.Put)
+		b.PushdataBytes([]byte{}).Op(op.Put)
+		b.Op(op.Put)
+		b.PushdataBytes(seller).PushdataInt64(1).Op(op.Tuple).Op(op.Put)
+		b.PushdataInt64(1).Op(op.Put)
+		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
+	}
+	fmt.Fprintf(buf, "%d split\n", amount) // con stack: teddcontract zeroval collateral
+	fmt.Fprintf(buf, "put\n")              // move collateral to arg stack
+	fmt.Fprintf(buf, "swap\n")             // con stack: zeroval teddcontract
+	fmt.Fprintf(buf, "call\n")             // con stack: zeroval
+	fmt.Fprintf(buf, "finalize\n")
+	// xxx sign seller utxos
+	return buf.Bytes(), nil
 }
