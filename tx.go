@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"time"
 
 	"github.com/chain/txvm/crypto/ed25519"
@@ -122,6 +123,7 @@ func ProposePayment(
 
 	b := new(txvmutil.Builder)
 	for i, utxo := range reservation.UTXOs() {
+		b.PushdataBytes([]byte{}).Op(op.Put)
 		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
 		b.Op(op.Get) // contract stack: [<deferred contract>] arg stack: [<value>]
@@ -133,9 +135,11 @@ func ProposePayment(
 		}
 		b.PushdataBytes(sig).Op(op.Put)
 		b.PushdataBytes(sigprog).Op(op.Put)
-		b.Op(op.Call)
+		b.Op(op.Call) // arg stack is again [<value> <deferred contract>]
 
-		b.Op(op.Get) // get the value from the arg stack
+		// Get the value from the arg stack, leave the deferred contract there.
+		b.Op(op.Get).Op(op.Get).PushdataInt64(1).Op(op.Roll).Op(op.Put)
+
 		if i > 0 {
 			b.Op(op.Merge)
 		}
@@ -148,10 +152,11 @@ func ProposePayment(
 		b.Op(op.Put)
 		b.PushdataBytes(buyer).PushdataInt64(1).Op(op.Tuple).Op(op.Put)
 		b.PushdataInt64(1).Op(op.Put)
-		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
+		b.PushdataBytes(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
 	b.PushdataBytes(teddContractProg).Op(op.Contract)
+	b.PushdataInt64(1).Op(op.Roll)
 
 	b.Op(op.Put) // payment, which was already on the contract stack
 	b.PushdataBytes(clearRoot[:]).Op(op.Put)
@@ -204,6 +209,7 @@ func RevealKey(
 	b := new(txvmutil.Builder)
 
 	for i, utxo := range reservation.UTXOs() {
+		b.PushdataBytes([]byte{}).Op(op.Put)
 		standard.SpendMultisig(b, 1, []ed25519.PublicKey{seller}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
 		b.Op(op.Get).Op(op.Get)
@@ -223,7 +229,7 @@ func RevealKey(
 		b.Op(op.Put)
 		b.PushdataBytes(seller).PushdataInt64(1).Op(op.Tuple).Op(op.Put)
 		b.PushdataInt64(1).Op(op.Put)
-		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
+		b.PushdataBytes(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
 	spendProg := b.Build()
@@ -239,8 +245,9 @@ func RevealKey(
 	if err != nil {
 		return nil, errors.Wrap(err, "assembling unsigned transaction")
 	}
+	tx1 = append(paymentProposal, tx1...)
 
-	vm, err := txvm.Validate(tx1, 3, math.MaxInt64, txvm.StopAfterFinalize)
+	vm, err := txvm.Validate(tx1, 3, math.MaxInt64, txvm.StopAfterFinalize, txvm.Trace(os.Stdout))
 	if err != nil {
 		return nil, errors.Wrap(err, "computing transaction ID")
 	}

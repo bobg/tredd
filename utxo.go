@@ -20,5 +20,5 @@ type Reserver interface {
 type Reservation interface {
 	UTXOs() []UTXO
 	Change() int64
-	Cancel()
+	Cancel(context.Context) error
 }
