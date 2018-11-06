@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"time"
 
 	"github.com/chain/txvm/crypto/ed25519"
@@ -58,8 +57,8 @@ func ProposePayment(
 
 		for i := 1; i < len(utxos); i++ {
 			var inp [64]byte
-			copy(inp[:32], anchor[:])
-			copy(inp[32:], utxos[i].Anchor())
+			copy(inp[:32], utxos[i].Anchor())
+			copy(inp[32:], anchor[:])
 			anchor = txvm.VMHash("Merge", inp[:])
 		}
 
@@ -76,7 +75,7 @@ func ProposePayment(
 
 		fmt.Fprintf(buf, "3 eq verify\n")
 		fmt.Fprintf(buf, "x'%x' eq verify\n", outputID[:])
-		fmt.Fprintf(buf, "x'%x' eq verify\n", standard.PayToMultisigSeed2[:])
+		fmt.Fprintf(buf, "drop\n")
 		fmt.Fprintf(buf, "'O' eq verify\n")
 	}
 
@@ -91,15 +90,15 @@ func ProposePayment(
 	fmt.Fprintf(buf, "%d eq verify\n", refundDeadline.Unix())
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+2)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", buyer)
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+2)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+3)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", cipherRoot[:])
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+3)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", clearRoot[:])
 	fmt.Fprintf(buf, "drop drop\n")
 
@@ -195,11 +194,6 @@ func RevealKey(
 	wantClearRoot, wantCipherRoot [32]byte,
 	wantRevealDeadline, wantRefundDeadline time.Time,
 ) ([]byte, error) {
-	buf := new(bytes.Buffer)
-
-	fmt.Fprintf(buf, "x'%x' put\n", seller)
-	fmt.Fprintf(buf, "x'%x' put\n", key[:])
-
 	// xxx check paymentProposal's params against "want" values
 	reservation, err := reserver.Reserve(ctx, amount, assetID, wantRevealDeadline)
 	if err != nil {
@@ -233,12 +227,18 @@ func RevealKey(
 	}
 
 	spendProg := b.Build()
+
+	buf := new(bytes.Buffer)
 	fmt.Fprintf(buf, "x'%x' exec\n", spendProg)
 
 	fmt.Fprintf(buf, "%d split\n", amount) // con stack: teddcontract zeroval collateral
-	fmt.Fprintf(buf, "put\n")              // move collateral to arg stack
-	fmt.Fprintf(buf, "swap\n")             // con stack: zeroval teddcontract
-	fmt.Fprintf(buf, "call\n")             // con stack: zeroval
+
+	fmt.Fprintf(buf, "x'%x' put\n", seller)
+	fmt.Fprintf(buf, "x'%x' put\n", key[:])
+
+	fmt.Fprintf(buf, "put\n")  // move collateral to arg stack
+	fmt.Fprintf(buf, "swap\n") // con stack: zeroval teddcontract
+	fmt.Fprintf(buf, "call\n") // con stack: zeroval
 	fmt.Fprintf(buf, "finalize\n")
 
 	tx1, err := asm.Assemble(buf.String())
@@ -247,7 +247,7 @@ func RevealKey(
 	}
 	tx1 = append(paymentProposal, tx1...)
 
-	vm, err := txvm.Validate(tx1, 3, math.MaxInt64, txvm.StopAfterFinalize, txvm.Trace(os.Stdout))
+	vm, err := txvm.Validate(tx1, 3, math.MaxInt64, txvm.StopAfterFinalize)
 	if err != nil {
 		return nil, errors.Wrap(err, "computing transaction ID")
 	}
@@ -263,7 +263,7 @@ func RevealKey(
 		if err != nil {
 			return nil, errors.Wrap(err, "computing signature")
 		}
-		fmt.Fprintf(buf, "x'%x' put x'%x' put call\n", sig, sigprog)
+		fmt.Fprintf(buf, "get x'%x' put x'%x' put call\n", sig, sigprog)
 	}
 	tx2, err := asm.Assemble(buf.String())
 	if err != nil {

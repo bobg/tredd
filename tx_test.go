@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
-
-	"i10r.io/protocol/txvm"
+	"github.com/chain/txvm/protocol/txvm"
 )
 
 var nexthashval = make([]byte, 32)
@@ -118,8 +118,11 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = txvm.Validate(complete, 3, math.MaxInt64)
+	vm, err := txvm.Validate(complete, 3, math.MaxInt64, txvm.Trace(os.Stdout))
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Logf("complete tx: %x\n", complete)
+	t.Logf("runlimit consumed: %d\n", math.MaxInt64-vm.Runlimit())
 }
