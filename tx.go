@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/chain/txvm/crypto/ed25519"
@@ -224,11 +225,42 @@ func RevealKey(
 		b.PushdataInt64(1).Op(op.Put)
 		b.Concat(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
+
+	spendProg := b.Build()
+	fmt.Fprintf(buf, "x'%x' exec\n", spendProg)
+
 	fmt.Fprintf(buf, "%d split\n", amount) // con stack: teddcontract zeroval collateral
 	fmt.Fprintf(buf, "put\n")              // move collateral to arg stack
 	fmt.Fprintf(buf, "swap\n")             // con stack: zeroval teddcontract
 	fmt.Fprintf(buf, "call\n")             // con stack: zeroval
 	fmt.Fprintf(buf, "finalize\n")
-	// xxx sign seller utxos
-	return buf.Bytes(), nil
+
+	tx1, err := asm.Assemble(buf.String())
+	if err != nil {
+		return nil, errors.Wrap(err, "assembling unsigned transaction")
+	}
+
+	vm, err := txvm.Validate(tx1, 3, math.MaxInt64, txvm.StopAfterFinalize)
+	if err != nil {
+		return nil, errors.Wrap(err, "computing transaction ID")
+	}
+
+	// sign seller utxos
+	buf = new(bytes.Buffer)
+	sigprog := standard.VerifyTxID(vm.TxID)
+	for i := len(reservation.UTXOs()) - 1; i >= 0; i-- {
+		utxo := reservation.UTXOs()[i]
+		anchoredSigprog := append([]byte{}, sigprog...)
+		anchoredSigprog = append(anchoredSigprog, utxo.Anchor()...)
+		sig, err := signer(anchoredSigprog)
+		if err != nil {
+			return nil, errors.Wrap(err, "computing signature")
+		}
+		fmt.Fprintf(buf, "x'%x' put x'%x' put call\n", sig, sigprog)
+	}
+	tx2, err := asm.Assemble(buf.String())
+	if err != nil {
+		return nil, errors.Wrap(err, "assembling signature section")
+	}
+	return append(tx1, tx2...), nil
 }
