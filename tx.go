@@ -288,9 +288,9 @@ func redeem(r *Redeem) *bytes.Buffer {
 	buf := new(bytes.Buffer)
 	fmt.Fprintf(
 		buf,
-		"{'C', x'%x', [%s], {'Z', %d}, {'S', x'%x'}, {'V', %d, x'%x', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}} input\n",
+		"{'C', x'%x', x'%x', {'Z', %d}, {'S', x'%x'}, {'V', %d, x'%x', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}} input\n",
 		teddContractSeed,
-		redemptionSrc,
+		redemptionProg,
 		r.RefundDeadline.Unix(),
 		r.Buyer,
 		r.Amount,
@@ -329,13 +329,13 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 	fmt.Fprint(w, "{")
 	for i := len(proof) - 1; i >= 0; i-- {
 		if i < len(proof)-1 {
-			fmt.Fprint(w, " ")
+			fmt.Fprint(w, ", ")
 		}
 		var isLeft int64
 		if proof[i].Left {
 			isLeft = 1
 		}
-		fmt.Fprintf(w, "x'%x' %d", proof[i].H, isLeft)
+		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
 	}
 	fmt.Fprintln(w, "}")
 }

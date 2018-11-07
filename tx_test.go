@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"math"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/bobg/merkle"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
@@ -145,7 +148,6 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Log("claiming payment")
 	vm, err = txvm.Validate(claimPaymentProg, 3, math.MaxInt64, txvm.Trace(os.Stdout))
 	if err != nil {
 		t.Fatal(err)
@@ -154,5 +156,61 @@ func TestTx(t *testing.T) {
 		t.Errorf("on input, got outputID %x, want %x", got, outputID)
 	}
 
-	// xxx claimrefund
+	var (
+		clearTree, cipherTree *merkle.Tree
+		refhash, refchunk     []byte
+	)
+
+	f, err := os.Open("testdata/commonsense.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+
+	for index := uint64(0); ; index++ {
+		var chunk [chunkSize + binary.MaxVarintLen64]byte
+		m := binary.PutUvarint(chunk[:], index)
+		n, err := io.ReadFull(f, chunk[m:m+chunkSize])
+		if err == io.EOF {
+			// "The error is EOF only if no bytes were read."
+			break
+		}
+		if err != nil && err != io.ErrUnexpectedEOF {
+			t.Fatal(err)
+		}
+
+		var h [32 + binary.MaxVarintLen64]byte
+		binary.PutUvarint(h[:], index)
+		hasher.Reset()
+		hasher.Write(chunk[m : m+n])
+		hasher.Sum(h[m:m])
+
+		if index == 0 {
+			refhash = make([]byte, m+32)
+			copy(refhash[:], h[:m+32])
+			clearTree = merkle.NewProofTree(sha256.New(), refhash)
+		}
+		clearTree.Add(h[:m+32])
+		crypt(key, chunk[m:m+n], index)
+		if index == 0 {
+			refchunk = make([]byte, m+n)
+			copy(refchunk, chunk[:m+n])
+			cipherTree = merkle.NewProofTree(sha256.New(), refchunk)
+		}
+		cipherTree.Add(refchunk)
+	}
+	clearProof := clearTree.Proof()
+	cipherProof := cipherTree.Proof()
+
+	claimRefundProg, err := ClaimRefund(r, 0, refchunk, refhash, cipherProof, clearProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64, txvm.Trace(os.Stdout))
+	if err != nil {
+		t.Fatal(err)
+	}
 }
