@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"time"
 
+	"github.com/bobg/merkle"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
@@ -270,4 +272,70 @@ func RevealKey(
 		return nil, errors.Wrap(err, "assembling signature section")
 	}
 	return append(tx1, tx2...), nil
+}
+
+type Redeem struct {
+	RefundDeadline        time.Time
+	Buyer, Seller         ed25519.PublicKey
+	Amount                int64 // sum of buyer payment + collateral
+	AssetID               bc.Hash
+	Anchor                [32]byte
+	CipherRoot, ClearRoot [32]byte
+	Key                   [32]byte
+}
+
+func redeem(r *Redeem) *bytes.Buffer {
+	buf := new(bytes.Buffer)
+	fmt.Fprintf(
+		buf,
+		"{'C', x'%x', [%s], %d, x'%x', {'V', %d, x'%x', x'%x'}, x'%x', x'%x', x'%x', x'%x'} input",
+		teddContractSeed,
+		redemptionSrc,
+		r.RefundDeadline.Unix(),
+		r.Buyer,
+		r.Amount,
+		r.AssetID.Bytes(),
+		r.Anchor[:],
+		r.CipherRoot[:],
+		r.ClearRoot[:],
+		r.Key[:],
+		r.Seller,
+	)
+	return buf
+}
+
+func ClaimPayment(r *Redeem) ([]byte, error) {
+	buf := redeem(r)
+	fmt.Fprintln(buf, "0 put call")
+	fmt.Fprintln(buf, "get finalize")
+	return asm.Assemble(buf.String())
+}
+
+func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, cipherProof, clearProof merkle.Proof) ([]byte, error) {
+	buf := redeem(r)
+	renderProof(buf, cipherProof)
+	fmt.Fprintln(buf, "put")
+	renderProof(buf, clearProof)
+	fmt.Fprintln(buf, "put")
+	fmt.Fprintf(buf, "x'%x' put\n", clearHash)
+	fmt.Fprintf(buf, "x'%x' put\n", cipherChunk)
+	fmt.Fprintf(buf, "x'%x' put\n", txvm.Encode(txvm.Int(index)))
+	fmt.Println(buf, "1 put call")
+	fmt.Println(buf, "get finalize")
+	return asm.Assemble(buf.String())
+}
+
+func renderProof(w io.Writer, proof merkle.Proof) {
+	fmt.Fprint(w, "{")
+	for i := len(proof) - 1; i >= 0; i-- {
+		if i < len(proof)-1 {
+			fmt.Fprint(w, " ")
+		}
+		var isLeft int64
+		if proof[i].Left {
+			isLeft = 1
+		}
+		fmt.Fprintf(w, "x'%x' %d", proof[i].H, isLeft)
+	}
+	fmt.Fprintln(w, "}")
 }

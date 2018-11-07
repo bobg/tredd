@@ -131,12 +131,13 @@ const buyerClaimsRefundFmt = `
 	cat                  #  refundDeadline buyer payment+collateral cipherRoot prefix+cipherchunk                                                            cipherproof
 	get swap             #  refundDeadline buyer payment+collateral cipherRoot cipherproof prefix+cipherchunk
 	x'%x' exec           #  refundDeadline buyer payment+collateral                                                                                                                                                                                       Check merkle proof subroutine goes here again. This shows that cipherchunk, with the same prefix, is the right chunk.
-	"" put "" put        #  refundDeadline buyer payment+collateral                                                                                          "" ""
-	put                  #  refundDeadline buyer                                                                                                             "" "" payment+collateral
-	1 tuple put          #  refundDeadline                                                                                                                   "" "" payment+collateral {buyer}
-	1 put                #  refundDeadline                                                                                                                   "" "" payment+collateral {buyer} 1
-	x'%x' contract call  #  refundDeadline                                                                                                                                                                            {'O', seed, outputID}
-	0 swap timerange     #                                                                                                                                                                                            ... {'L', seed, 0, refundDeadline}
+	splitzero put        #  refundDeadline buyer payment+collateral                                                                                          zeroval
+	"" put "" put        #  refundDeadline buyer payment+collateral                                                                                          zeroval "" ""
+	put                  #  refundDeadline buyer                                                                                                             zeroval "" "" payment+collateral
+	1 tuple put          #  refundDeadline                                                                                                                   zeroval "" "" payment+collateral {buyer}
+	1 put                #  refundDeadline                                                                                                                   zeroval "" "" payment+collateral {buyer} 1
+	x'%x' contract call  #  refundDeadline                                                                                                                   zeroval                                                  {'O', seed, outputID}
+	0 swap timerange     #                                                                                                                                   zeroval                                                  ... {'L', seed, 0, refundDeadline}
 `
 
 var (
@@ -210,15 +211,16 @@ var (
 )
 
 const sellerClaimsPaymentFmt = `
-	                     #  con stack                                 arg stack                            log                                 notes
-	                     #  ---------                                 ---------                            ---                                 -----
-	                     #  refundDeadline seller payment+collateral
-	"" put "" put        #  refundDeadline seller payment+collateral  "" ""
-	put                  #  refundDeadline seller                     "" "" payment+collateral
-	1 tuple put          #  refundDeadline                            "" "" payment+collateral {seller}
-	1 put                #  refundDeadline                            "" "" payment+collateral {seller} 1
-	x'%x' contract call  #  refundDeadline                                                                 {'O', seed, outputID}
-	0 timerange          #                                                                                 ... {'R', seed, refundDeadline, 0}
+	                     #  con stack                                 arg stack                                    log                                 notes
+	                     #  ---------                                 ---------                                    ---                                 -----
+	                     #  refundDeadline seller payment+collateral                                                                                   
+	splitzero put        #  refundDeadline seller payment+collateral  zeroval                                                                          
+	"" put "" put        #  refundDeadline seller payment+collateral  zeroval "" ""                                                                    
+	put                  #  refundDeadline seller                     zeroval "" "" payment+collateral                                                 
+	1 tuple put          #  refundDeadline                            zeroval "" "" payment+collateral {seller}                                        
+	1 put                #  refundDeadline                            zeroval "" "" payment+collateral {seller} 1                                      
+	x'%x' contract call  #  refundDeadline                            zeroval                                      {'O', seed, outputID}               
+	0 timerange          #                                            zeroval                                      ... {'R', seed, refundDeadline, 0}  
 `
 
 var (
