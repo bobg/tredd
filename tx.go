@@ -320,8 +320,8 @@ func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, c
 	fmt.Fprintf(buf, "x'%x' put\n", clearHash)
 	fmt.Fprintf(buf, "x'%x' put\n", cipherChunk)
 	fmt.Fprintf(buf, "x'%x' put\n", txvm.Encode(txvm.Int(index)))
-	fmt.Println(buf, "1 put call")
-	fmt.Println(buf, "get finalize")
+	fmt.Fprintln(buf, "1 put call")
+	fmt.Fprintln(buf, "get finalize")
 	return asm.Assemble(buf.String())
 }
 
