@@ -288,7 +288,7 @@ func redeem(r *Redeem) *bytes.Buffer {
 	buf := new(bytes.Buffer)
 	fmt.Fprintf(
 		buf,
-		"{'C', x'%x', [%s], %d, x'%x', {'V', %d, x'%x', x'%x'}, x'%x', x'%x', x'%x', x'%x'} input",
+		"{'C', x'%x', [%s], {'Z', %d}, {'S', x'%x'}, {'V', %d, x'%x', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}} input\n",
 		teddContractSeed,
 		redemptionSrc,
 		r.RefundDeadline.Unix(),

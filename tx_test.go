@@ -1,6 +1,7 @@
 package tedd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -123,6 +124,35 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("complete tx: %x\n", complete)
-	t.Logf("runlimit consumed: %d\n", math.MaxInt64-vm.Runlimit())
+	var anchor [32]byte
+	copy(anchor[:], vm.Log[len(vm.Log)-5][2].(txvm.Bytes))
+	outputID := []byte(vm.Log[len(vm.Log)-2][2].(txvm.Bytes))
+
+	r := &Redeem{
+		RefundDeadline: refundDeadline,
+		Buyer:          buyer,
+		Seller:         seller,
+		Amount:         20,
+		AssetID:        assetID,
+		Anchor:         anchor,
+		CipherRoot:     cipherRoot,
+		ClearRoot:      clearRoot,
+		Key:            key,
+	}
+
+	claimPaymentProg, err := ClaimPayment(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("claiming payment")
+	vm, err = txvm.Validate(claimPaymentProg, 3, math.MaxInt64, txvm.Trace(os.Stdout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []byte(vm.Log[0][2].(txvm.Bytes)); !bytes.Equal(got, outputID) {
+		t.Errorf("on input, got outputID %x, want %x", got, outputID)
+	}
+
+	// xxx claimrefund
 }
