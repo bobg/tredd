@@ -3,6 +3,7 @@ package tedd
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -312,6 +313,9 @@ func ClaimPayment(r *Redeem) ([]byte, error) {
 }
 
 func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, cipherProof, clearProof merkle.Proof) ([]byte, error) {
+	var prefix [binary.MaxVarintLen64]byte
+	m := binary.PutUvarint(prefix[:], uint64(index))
+
 	buf := redeem(r)
 	renderProof(buf, cipherProof)
 	fmt.Fprintln(buf, "put")
@@ -319,7 +323,7 @@ func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, c
 	fmt.Fprintln(buf, "put")
 	fmt.Fprintf(buf, "x'%x' put\n", clearHash)
 	fmt.Fprintf(buf, "x'%x' put\n", cipherChunk)
-	fmt.Fprintf(buf, "x'%x' put\n", txvm.Encode(txvm.Int(index)))
+	fmt.Fprintf(buf, "x'%x' put\n", prefix[:m])
 	fmt.Fprintln(buf, "1 put call")
 	fmt.Fprintln(buf, "get finalize")
 	return asm.Assemble(buf.String())
