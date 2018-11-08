@@ -14,6 +14,7 @@ import (
 
 	"github.com/bobg/merkle"
 	"github.com/chain/txvm/crypto/ed25519"
+	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
 )
@@ -122,7 +123,7 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vm, err := txvm.Validate(complete, 3, math.MaxInt64, txvm.Trace(os.Stdout))
+	vm, err := txvm.Validate(complete, 3, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vm, err = txvm.Validate(claimPaymentProg, 3, math.MaxInt64, txvm.Trace(os.Stdout))
+	vm, err = txvm.Validate(claimPaymentProg, 3, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,9 +184,7 @@ func TestTx(t *testing.T) {
 
 		var h [32 + binary.MaxVarintLen64]byte
 		binary.PutUvarint(h[:], index)
-		hasher.Reset()
-		hasher.Write(chunk[m : m+n])
-		hasher.Sum(h[m:m])
+		merkle.LeafHash(hasher, h[:m], chunk[:m+n])
 
 		if index == 0 {
 			refhash = make([]byte, 32)
@@ -204,13 +203,23 @@ func TestTx(t *testing.T) {
 	clearProof := clearTree.Proof()
 	cipherProof := cipherTree.Proof()
 
+	// With the right key and clear hash and cipher chunk,
+	// it should not be possible to get a refund.
 	claimRefundProg, err := ClaimRefund(r, 0, refchunk, refhash, cipherProof, clearProof)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64, txvm.Trace(os.Stdout))
+	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64)
+	if errors.Root(err) != txvm.ErrVerifyFail {
+		t.Errorf("got error %v, want %s", err, txvm.ErrVerifyFail)
+	}
+
+	// With the wrong key, on the other hand...
+	r.Key[0] ^= 1
+
+	claimRefundProg, err = ClaimRefund(r, 0, refchunk, refhash, cipherProof, clearProof)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 }
