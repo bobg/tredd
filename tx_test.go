@@ -220,6 +220,10 @@ func TestTx(t *testing.T) {
 
 	claimRefundProg, err = ClaimRefund(r, 0, refchunk, refhash, cipherProof, clearProof)
 	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64)
+	if err != nil {
 		t.Error(err)
 	}
 }
