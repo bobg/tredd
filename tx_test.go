@@ -188,18 +188,18 @@ func TestTx(t *testing.T) {
 		hasher.Sum(h[m:m])
 
 		if index == 0 {
-			refhash = make([]byte, m+32)
-			copy(refhash[:], h[:m+32])
-			clearTree = merkle.NewProofTree(sha256.New(), refhash)
+			refhash = make([]byte, 32)
+			copy(refhash[:], h[m:m+32])
+			clearTree = merkle.NewProofTree(sha256.New(), h[:m+32])
 		}
 		clearTree.Add(h[:m+32])
 		crypt(key, chunk[m:m+n], index)
 		if index == 0 {
-			refchunk = make([]byte, m+n)
-			copy(refchunk, chunk[:m+n])
-			cipherTree = merkle.NewProofTree(sha256.New(), refchunk)
+			refchunk = make([]byte, n)
+			copy(refchunk, chunk[m:m+n])
+			cipherTree = merkle.NewProofTree(sha256.New(), chunk[:m+n])
 		}
-		cipherTree.Add(refchunk)
+		cipherTree.Add(chunk[:m+n])
 	}
 	clearProof := clearTree.Proof()
 	cipherProof := cipherTree.Proof()
