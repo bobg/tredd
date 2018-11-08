@@ -123,7 +123,7 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vm, err := txvm.Validate(complete, 3, math.MaxInt64)
+	vm, err := txvm.Validate(complete, 3, math.MaxInt64, txvm.Trace(os.Stdout))
 	if err != nil {
 		t.Fatal(err)
 	}
