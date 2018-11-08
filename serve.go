@@ -16,7 +16,7 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	var (
 		cipherMT            = merkle.NewTree(sha256.New())
 		hasher              = sha256.New()
-		chunkWithPrefix     [chunkSize + binary.MaxVarintLen64]byte
+		chunkWithPrefix     [ChunkSize + binary.MaxVarintLen64]byte
 		clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
 	)
 
@@ -24,7 +24,7 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 		m := binary.PutUvarint(chunkWithPrefix[:], index)
 		binary.PutUvarint(clearHashWithPrefix[:], index)
 
-		n, err := io.ReadFull(r, chunkWithPrefix[m:m+chunkSize])
+		n, err := io.ReadFull(r, chunkWithPrefix[m:m+ChunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break

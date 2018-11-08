@@ -14,7 +14,7 @@ import (
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
 	var (
 		hasher          = sha256.New()
-		chunkWithPrefix [chunkSize + binary.MaxVarintLen64]byte
+		chunkWithPrefix [ChunkSize + binary.MaxVarintLen64]byte
 		gotClearHash    [32]byte
 	)
 

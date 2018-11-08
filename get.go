@@ -27,7 +27,7 @@ func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]
 		clearMT               = merkle.NewTree(sha256.New())
 		cipherMT              = merkle.NewTree(sha256.New())
 		clearHashWithPrefix   [32 + binary.MaxVarintLen64]byte
-		cipherChunkWithPrefix [chunkSize + binary.MaxVarintLen64]byte
+		cipherChunkWithPrefix [ChunkSize + binary.MaxVarintLen64]byte
 	)
 
 	for index := uint64(0); ; index++ {
@@ -49,7 +49,7 @@ func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]
 		}
 		clearMT.Add(clearHashWithPrefix[:m+32])
 
-		n, err := io.ReadFull(r, cipherChunkWithPrefix[m:m+chunkSize])
+		n, err := io.ReadFull(r, cipherChunkWithPrefix[m:m+ChunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			return nil, errors.Wrapf(errMissingChunk, "reading chunk %d", index)

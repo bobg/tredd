@@ -7,7 +7,7 @@ import (
 	"github.com/chain/txvm/protocol/txvm"
 )
 
-const chunkSize = 8192
+const ChunkSize = 8192
 
 type ChunkStore interface {
 	Add([]byte) error

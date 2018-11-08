@@ -172,9 +172,9 @@ func TestTx(t *testing.T) {
 	hasher := sha256.New()
 
 	for index := uint64(0); ; index++ {
-		var chunk [chunkSize + binary.MaxVarintLen64]byte
+		var chunk [ChunkSize + binary.MaxVarintLen64]byte
 		m := binary.PutUvarint(chunk[:], index)
-		n, err := io.ReadFull(f, chunk[m:m+chunkSize])
+		n, err := io.ReadFull(f, chunk[m:m+ChunkSize])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
