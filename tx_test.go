@@ -127,6 +127,7 @@ func TestTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("RevealKey transaction consumed %d units of runlimit", math.MaxInt64-vm.Runlimit())
 
 	var anchor [32]byte
 	copy(anchor[:], vm.Log[len(vm.Log)-5][2].(txvm.Bytes))
@@ -148,7 +149,6 @@ func TestTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	vm, err = txvm.Validate(claimPaymentProg, 3, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +156,7 @@ func TestTx(t *testing.T) {
 	if got := []byte(vm.Log[0][2].(txvm.Bytes)); !bytes.Equal(got, outputID) {
 		t.Errorf("on input, got outputID %x, want %x", got, outputID)
 	}
+	t.Logf("ClaimPayment transaction consumed %d units of runlimit", math.MaxInt64-vm.Runlimit())
 
 	var (
 		clearTree, cipherTree *merkle.Tree
@@ -209,8 +210,7 @@ func TestTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64)
+	_, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64)
 	if errors.Root(err) != txvm.ErrVerifyFail {
 		t.Errorf("got error %v, want %s", err, txvm.ErrVerifyFail)
 	}
@@ -222,8 +222,9 @@ func TestTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64)
+	vm, err = txvm.Validate(claimRefundProg, 3, math.MaxInt64) // warning: if you decide to trace this with txvm.Trace, be prepared for >600MB of output
 	if err != nil {
 		t.Error(err)
 	}
+	t.Logf("ClaimRefund transaction consumed %d units of runlimit", math.MaxInt64-vm.Runlimit())
 }
