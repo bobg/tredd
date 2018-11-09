@@ -23,6 +23,8 @@ func main() {
 	switch os.Args[1] {
 	case "add":
 		add(os.Args[2:])
+	case "serve":
+		serve(os.Args[2:])
 	default:
 		log.Fatalf("unknown subcommand %s", os.Args[1])
 	}
