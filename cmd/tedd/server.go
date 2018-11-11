@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"flag"
@@ -18,7 +17,6 @@ import (
 	"github.com/bobg/tedd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
-	"github.com/chain/txvm/protocol/txbuilder/txresult"
 	"github.com/chain/txvm/protocol/txvm"
 )
 
@@ -41,7 +39,7 @@ func serve(args []string) {
 	defer f.Close()
 
 	var prvbuf [ed25519.PrivateKeySize]byte
-	_, err = io.ReadFull(f, prv[:])
+	_, err = io.ReadFull(f, prvbuf[:])
 	if err != nil {
 		log.Fatalf("reading prv file %s: %s", *prvFile, err)
 	}
@@ -78,7 +76,7 @@ type serverRecord struct {
 	clearRoot, cipherRoot [32]byte
 	key                   [32]byte
 	amount                int64
-	assetID               bc.AssetID
+	assetID               bc.Hash
 	refundDeadline        time.Time
 }
 
@@ -151,19 +149,35 @@ func (s *server) monitorBlockchain(ctx context.Context, url string) {
 	for {
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s?height=%d", url, height))
 		if err != nil {
-			// xxx retry with delay
+			log.Printf("error getting block at height %d from %s, will retry in ~5 seconds: %s", height, url, err)
+
+			timer := time.Timer(5 * time.Second) // xxx add jitter
+			select {
+			case <-timer.C:
+				continue
+
+			case <-ctx.Done():
+				// canceled, exit
+				timer.Stop()
+				log.Print("context canceled, blockchain monitor exiting")
+				return
+			}
 		}
+
 		req = req.WithContext(ctx)
 		resp, err := client.Do(req)
 		if err != nil {
 			// xxx
 		}
+
 		err = s.processBlock(resp.Body)
 		if err != nil {
 			// xxx
 		}
 		if ctx.Err() != nil {
-			// xxx canceled, exit
+			// canceled, exit
+			log.Print("context canceled, blockchain monitor exiting")
+			return
 		}
 	}
 }
@@ -175,36 +189,11 @@ func (s *server) processBlock(r io.ReadCloser) error {
 	if err != nil {
 		// xxx
 	}
-	var b bc.Block
+	b := new(bc.Block)
 	err = b.FromBytes(bits)
 	if err != nil {
 		// xxx
 	}
 	// xxx set server's blockchain timestamp
-	for _, tx := range b.Transactions {
-		err = s.processTx(tx)
-		if err != nil {
-			// xxx
-		}
-	}
-	return nil
-}
-
-func (s *server) processTx(bctx *bc.Tx) error {
-	tx := txresult.New(bctx)
-	for _, inp := range tx.Inputs {
-		s.reserver.remove(inp.OutputID)
-	}
-	for _, out := range tx.Outputs {
-		if out.Value == nil {
-			continue
-		}
-		if len(out.Pubkeys) != 1 {
-			continue
-		}
-		if !bytes.Equal(out.Pubkeys[0], s.seller) {
-			continue
-		}
-		s.reserver.add(out.OutputID, out.Value)
-	}
+	return s.reserver.processBlock(b)
 }

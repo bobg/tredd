@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/bobg/tedd"
@@ -18,97 +20,163 @@ type reserver struct {
 	db     *bbolt.DB
 }
 
-func (r *reserver) add(outputID bc.Hash, value txresult.Value) error {
-	return r.db.Update(func(tx *bbolt.Tx) error {
-		utxos, err := tx.CreateBucketIfNotExists([]byte("utxos"))
+func (r *reserver) processBlock(b *bc.Block) error {
+	return r.db.Update(func(dbtx *bbolt.Tx) error {
+		utxos, err := dbtx.CreateBucketIfNotExists([]byte("utxos"))
 		if err != nil {
-			return errors.Wrap(err, "creating utxos bucket")
+			return errors.Wrapf(err, "getting/creating utxos db bucket")
 		}
-		asset, err := utxos.CreateBucketIfNotExists(value.AssetID.Bytes())
-		if err != nil {
-			return errors.Wrapf(err, "creating asset ID bucket %x", value.AssetID.Bytes())
-		}
-		utxoBucket, err := asset.CreateBucket(outputID.Bytes())
-		if err != nil {
-			return errors.Wrapf(err, "creating utxo bucket %x", outputID.Bytes())
-		}
-		err = utxoBucket.Put([]byte("anchor"), value.Anchor)
-		if err != nil {
-			return errors.Wrapf(err, "storing anchor for utxo %x", outputID.Bytes())
-		}
-		var amountbuf [binary.MaxVarintLen64]byte
-		m := binary.PutUvarint(amountbuf[:], value.Amount)
-		err = utxoBucket.Put([]byte("amount"), amountbuf[:m])
-		if err != nil {
-			return errors.Wrapf(err, "storing amount for utxo %x", outputID.Bytes())
+		for _, bctx := range b.Transactions {
+			txr := txresult.New(bctx)
+			for _, inp := range txr.Inputs {
+				if inp.Value == nil {
+					continue
+				}
+				asset := utxos.Bucket(inp.Value.AssetID.Bytes())
+				if asset == nil {
+					// xxx err
+				}
+				err = asset.DeleteBucket(inp.OutputID.Bytes())
+				if err != nil {
+					return errors.Wrapf(err, "deleting bucket for utxo %x", inp.OutputID.Bytes())
+				}
+			}
+			for _, out := range txr.Outputs {
+				if out.Value == nil {
+					continue
+				}
+				if len(out.Pubkeys) != 1 {
+					continue
+				}
+				if !bytes.Equal(out.Pubkeys[0], r.pubkey) {
+					continue
+				}
+				asset, err := utxos.CreateBucketIfNotExists(out.Value.AssetID.Bytes())
+				if err != nil {
+					return errors.Wrapf(err, "creating asset ID bucket %x", out.Value.AssetID.Bytes())
+				}
+				utxoBucket, err := asset.CreateBucket(out.OutputID.Bytes())
+				if err != nil {
+					return errors.Wrapf(err, "creating utxo bucket %x", out.OutputID.Bytes())
+				}
+				err = utxoBucket.Put([]byte("anchor"), out.Value.Anchor)
+				if err != nil {
+					return errors.Wrapf(err, "storing anchor for utxo %x", out.OutputID.Bytes())
+				}
+				var amountbuf [binary.MaxVarintLen64]byte
+				m := binary.PutVarint(amountbuf[:], int64(out.Value.Amount)) // xxx range checking
+				err = utxoBucket.Put([]byte("amount"), amountbuf[:m])
+				if err != nil {
+					return errors.Wrapf(err, "storing amount for utxo %x", out.OutputID.Bytes())
+				}
+			}
 		}
 		return nil
 	})
 }
 
-func (r *reserver) remove(outputID, assetID bc.Hash) error {
-	return r.db.Update(func(tx *bbolt.Tx) error {
-		utxos := tx.Bucket([]byte("utxos"))
-		if utxos == nil {
-			// xxx err
-		}
-		asset := utxos.Bucket(assetID.Bytes())
-		if asset == nil {
-			// xxx err
-		}
-		return asset.DeleteBucket(outputID.Bytes())
-	})
+type reservation struct {
+	r         *reserver
+	utxos     []tedd.UTXO // 1:1 with outputIDs
+	outputIDs [][]byte    // 1:1 with utxos
+	change    int64
 }
 
-type reservation struct {
-	utxos  []tedd.UTXO
-	change int64
-}
+var errInsufficientFunds = errors.New("insufficient funds")
 
 func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now, exp time.Time) (tedd.Reservation, error) {
-	var res reservation
+	res := &reservation{r: r}
 	err := r.db.Update(func(tx *bbolt.Tx) error {
 		utxos := tx.Bucket([]byte("utxos"))
 		if utxos == nil {
-			// xxx err
+			return errInsufficientFunds
 		}
 		asset := utxos.Bucket(assetID.Bytes())
 		if asset == nil {
-			// xxx err
+			return errInsufficientFunds
 		}
 		c := asset.Cursor()
 		for amount > 0 {
 			outputID, _ := c.Next() // xxx do we have to do c.First() first?
 			utxoBucket := asset.Bucket(outputID)
 			if utxoBucket == nil {
-				// xxx err
+				return errInsufficientFunds
 			}
-			utxoExp := utxoBucket.Get([]byte("expiration"))
-			if len(utxoExp) > 0 {
-				// xxx parse utxoExp into a time.Time
-				// xxx compare with now, skip if utxo is reserved
+			utxoExpBytes := utxoBucket.Get([]byte("expiration"))
+			if len(utxoExpBytes) > 0 {
+				var utxoExp time.Time
+				err := utxoExp.UnmarshalBinary(utxoExpBytes)
+				if err != nil {
+					return errors.Wrapf(err, "parsing expiration time of reserved utxo %x", outputID)
+				}
+				if now.Before(utxoExp) {
+					// utxo is reserved
+					continue
+				}
 			}
-			utxoAmount, n := binary.Uvarint(utxoBucket.Get([]byte("amount")))
+			utxoAmount, n := binary.Varint(utxoBucket.Get([]byte("amount")))
 			if n < 1 {
-				// xxx err
+				return fmt.Errorf("cannot parse amount in utxo %x", outputID)
 			}
 			utxoAnchor := utxoBucket.Get([]byte("anchor"))
-			if len(anchor) != 32 {
-				// xxx err
-			}
 			u := &utxo{
 				amount:  utxoAmount,
 				assetID: assetID,
 				anchor:  utxoAnchor,
 			}
 			res.utxos = append(res.utxos, u)
+			res.outputIDs = append(res.outputIDs, outputID)
 			amount -= utxoAmount
 		}
 		res.change = -amount
-		for _, u := range res.utxos {
-			// xxx set expiration of this utxo
+		for _, o := range res.outputIDs {
+			expBytes, err := exp.MarshalBinary()
+			if err != nil {
+				return errors.Wrapf(err, "storing reservation expiration time in utxo %x", o)
+			}
+			utxoBucket := asset.Bucket(o)
+			utxoBucket.Put([]byte("expiration"), expBytes)
 		}
 		return nil
 	})
-	return &res, err
+	return res, err
 }
+
+func (r *reservation) UTXOs() []tedd.UTXO {
+	return r.utxos
+}
+
+func (r *reservation) Change() int64 {
+	return r.change
+}
+
+func (r *reservation) Cancel(context.Context) error {
+	return r.r.db.Update(func(tx *bbolt.Tx) error {
+		utxos := tx.Bucket([]byte("utxos"))
+		if utxos == nil {
+			return nil
+		}
+		asset := utxos.Bucket(r.utxos[0].AssetID().Bytes())
+		if asset == nil {
+			return nil
+		}
+		for _, o := range r.outputIDs {
+			utxoBucket := asset.Bucket(o)
+			if utxoBucket == nil {
+				continue
+			}
+			utxoBucket.Delete([]byte("expiration"))
+		}
+		return nil
+	})
+}
+
+type utxo struct {
+	amount  int64
+	assetID bc.Hash
+	anchor  []byte
+}
+
+func (u *utxo) Amount() int64    { return u.amount }
+func (u *utxo) AssetID() bc.Hash { return u.assetID }
+func (u *utxo) Anchor() []byte   { return u.anchor }
