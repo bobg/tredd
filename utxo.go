@@ -14,7 +14,7 @@ type UTXO interface {
 }
 
 type Reserver interface {
-	Reserve(context.Context, int64, bc.Hash, time.Time) (Reservation, error)
+	Reserve(ctx context.Context, amount int64, assetID bc.Hash, now, exp time.Time) (Reservation, error)
 }
 
 type Reservation interface {

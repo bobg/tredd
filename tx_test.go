@@ -89,12 +89,13 @@ func TestTx(t *testing.T) {
 
 	revealDeadline := time.Unix(233400000, 0)
 	refundDeadline := revealDeadline.Add(time.Hour)
+	now := revealDeadline.Add(-time.Hour)
 
 	signer := func(msg []byte) ([]byte, error) {
 		return ed25519.Sign(buyerPrv, msg), nil
 	}
 
-	partial, err := ProposePayment(ctx, buyer, 10, assetID, clearRoot, cipherRoot, revealDeadline, refundDeadline, reserver, signer)
+	partial, err := ProposePayment(ctx, buyer, 10, assetID, clearRoot, cipherRoot, now, revealDeadline, refundDeadline, reserver, signer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestTx(t *testing.T) {
 		return ed25519.Sign(sellerPrv, msg), nil
 	}
 
-	complete, err := RevealKey(ctx, partial, seller, key, 10, assetID, reserver, signer, clearRoot, cipherRoot, revealDeadline, refundDeadline)
+	complete, err := RevealKey(ctx, partial, seller, key, 10, assetID, reserver, signer, clearRoot, cipherRoot, now, revealDeadline, refundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}

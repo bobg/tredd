@@ -29,11 +29,11 @@ func ProposePayment(
 	amount int64,
 	assetID bc.Hash,
 	clearRoot, cipherRoot [32]byte,
-	revealDeadline, refundDeadline time.Time,
+	now, revealDeadline, refundDeadline time.Time,
 	reserver Reserver,
 	signer Signer,
 ) ([]byte, error) {
-	reservation, err := reserver.Reserve(ctx, amount, assetID, revealDeadline)
+	reservation, err := reserver.Reserve(ctx, amount, assetID, now, revealDeadline)
 	if err != nil {
 		return nil, errors.Wrap(err, "reserving utxos")
 	}
@@ -195,7 +195,7 @@ func RevealKey(
 	reserver Reserver,
 	signer Signer,
 	wantClearRoot, wantCipherRoot [32]byte,
-	wantRevealDeadline, wantRefundDeadline time.Time,
+	now, wantRevealDeadline, wantRefundDeadline time.Time,
 ) ([]byte, error) {
 	parsed := parseLog(paymentProposal)
 	if parsed == nil {
@@ -220,7 +220,7 @@ func RevealKey(
 		return nil, fmt.Errorf("got asset ID %x, want %x", parsed.assetID, assetID.Bytes())
 	}
 
-	reservation, err := reserver.Reserve(ctx, amount, assetID, wantRevealDeadline)
+	reservation, err := reserver.Reserve(ctx, amount, assetID, now, wantRevealDeadline)
 	if err != nil {
 		return nil, errors.Wrap(err, "reserving utxos")
 	}

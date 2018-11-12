@@ -12,7 +12,7 @@ type testReserver struct {
 	utxos []UTXO
 }
 
-func (r *testReserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, exp time.Time) (Reservation, error) {
+func (r *testReserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now, exp time.Time) (Reservation, error) {
 	res := &testReservation{reserver: r}
 	for amount > 0 {
 		if len(r.utxos) == 0 {
