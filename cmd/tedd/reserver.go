@@ -34,7 +34,7 @@ func (r *reserver) processBlock(b *bc.Block) error {
 				}
 				asset := utxos.Bucket(inp.Value.AssetID.Bytes())
 				if asset == nil {
-					// xxx err
+					return errors.Wrapf(err, "asset bucket %x not found", inp.Value.AssetID.Bytes())
 				}
 				err = asset.DeleteBucket(inp.OutputID.Bytes())
 				if err != nil {

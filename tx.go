@@ -86,11 +86,11 @@ func ProposePayment(
 	fmt.Fprintf(buf, "4 eq verify\n")
 	fmt.Fprintf(buf, "3 roll 'R' eq verify\n") // xxx use txvm.TimerangeCode and other such constants
 	fmt.Fprintf(buf, "2 roll x'%x' eq verify\n", teddContractSeed[:])
-	fmt.Fprintf(buf, "%d eq verify\n", revealDeadline.Unix())
+	fmt.Fprintf(buf, "%d eq verify\n", bc.Millis(revealDeadline))
 	fmt.Fprintf(buf, "0 eq verify\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+1)
-	fmt.Fprintf(buf, "%d eq verify\n", refundDeadline.Unix())
+	fmt.Fprintf(buf, "%d eq verify\n", bc.Millis(refundDeadline))
 	fmt.Fprintf(buf, "drop drop\n")
 
 	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+2)
@@ -164,8 +164,8 @@ func ProposePayment(
 	b.PushdataBytes(clearRoot[:]).Op(op.Put)
 	b.PushdataBytes(cipherRoot[:]).Op(op.Put)
 	b.PushdataBytes(buyer).Op(op.Put)
-	b.PushdataInt64(refundDeadline.Unix()).Op(op.Put)
-	b.PushdataInt64(revealDeadline.Unix()).Op(op.Put)
+	b.PushdataInt64(int64(bc.Millis(refundDeadline))).Op(op.Put) // xxx range checking
+	b.PushdataInt64(int64(bc.Millis(revealDeadline))).Op(op.Put) // xxx range checking
 
 	b.Op(op.Call)
 
@@ -197,7 +197,29 @@ func RevealKey(
 	wantClearRoot, wantCipherRoot [32]byte,
 	wantRevealDeadline, wantRefundDeadline time.Time,
 ) ([]byte, error) {
-	// xxx check paymentProposal's params against "want" values
+	parsed := parseLog(paymentProposal)
+	if parsed == nil {
+		return nil, errors.New("could not parse payment proposal")
+	}
+	if parsed.revealDeadline.Unix() != wantRevealDeadline.Unix() {
+		return nil, fmt.Errorf("got reveal deadline %s, want %s", parsed.revealDeadline, wantRevealDeadline)
+	}
+	if parsed.refundDeadline.Unix() != wantRefundDeadline.Unix() {
+		return nil, fmt.Errorf("got refund deadline %s, want %s", parsed.refundDeadline, wantRefundDeadline)
+	}
+	if !bytes.Equal(parsed.cipherRoot, wantCipherRoot[:]) {
+		return nil, fmt.Errorf("got cipher root %x, want %x", parsed.cipherRoot, wantCipherRoot[:])
+	}
+	if !bytes.Equal(parsed.clearRoot, wantClearRoot[:]) {
+		return nil, fmt.Errorf("got clear root %x, want %x", parsed.clearRoot, wantClearRoot[:])
+	}
+	if parsed.amount != amount {
+		return nil, fmt.Errorf("got amount %d, want %d", parsed.amount, amount)
+	}
+	if !bytes.Equal(parsed.assetID, assetID.Bytes()) {
+		return nil, fmt.Errorf("got asset ID %x, want %x", parsed.assetID, assetID.Bytes())
+	}
+
 	reservation, err := reserver.Reserve(ctx, amount, assetID, wantRevealDeadline)
 	if err != nil {
 		return nil, errors.Wrap(err, "reserving utxos")
@@ -292,7 +314,7 @@ func redeem(r *Redeem) *bytes.Buffer {
 		"{'C', x'%x', x'%x', {'Z', %d}, {'S', x'%x'}, {'V', %d, x'%x', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}} input\n",
 		teddContractSeed,
 		redemptionProg,
-		r.RefundDeadline.Unix(),
+		bc.Millis(r.RefundDeadline),
 		r.Buyer,
 		r.Amount,
 		r.AssetID.Bytes(),
@@ -342,4 +364,71 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
 	}
 	fmt.Fprintln(w, "}")
+}
+
+type parseResult struct {
+	amount         int64
+	assetID        []byte
+	anchor1        []byte
+	anchor2        []byte
+	clearRoot      []byte
+	cipherRoot     []byte
+	revealDeadline time.Time
+	refundDeadline time.Time
+	buyer          ed25519.PublicKey
+	seller         ed25519.PublicKey
+	key            []byte
+	outputID       []byte
+}
+
+func parseLog(prog []byte) *parseResult {
+	vm, err := txvm.Validate(prog, 3, math.MaxInt64, txvm.StopAfterFinalize)
+	if vm == nil || err != nil {
+		return nil
+	}
+	var res *parseResult
+	for i, item := range vm.Log {
+		if len(item) != 4 {
+			continue
+		}
+		code, ok := item[0].(txvm.Bytes)
+		if !ok {
+			continue
+		}
+		if !bytes.Equal(code, []byte{'R'}) {
+			continue
+		}
+		if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
+			continue
+		}
+		res = &parseResult{
+			revealDeadline: bc.FromMillis(uint64(item[3].(txvm.Int))), // xxx range checking
+			refundDeadline: bc.FromMillis(uint64(vm.Log[i+1][2].(txvm.Int))),
+			buyer:          ed25519.PublicKey(vm.Log[i+2][2].(txvm.Bytes)),
+			cipherRoot:     vm.Log[i+3][2].(txvm.Bytes),
+			clearRoot:      vm.Log[i+4][2].(txvm.Bytes),
+			amount:         int64(vm.Log[i+5][2].(txvm.Int)),
+			assetID:        vm.Log[i+6][2].(txvm.Bytes),
+			anchor1:        vm.Log[i+7][2].(txvm.Bytes),
+		}
+		for j := i + 1; j < len(vm.Log); j++ {
+			item := vm.Log[j]
+			if len(item) != 3 {
+				continue
+			}
+			if !bytes.Equal(code, []byte{'L'}) {
+				continue
+			}
+			if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
+				continue
+			}
+			res.anchor1 = vm.Log[j][2].(txvm.Bytes)
+			res.key = vm.Log[j+1][2].(txvm.Bytes)
+			res.seller = ed25519.PublicKey(vm.Log[j+2][2].(txvm.Bytes))
+			res.outputID = vm.Log[j+3][2].(txvm.Bytes)
+			break
+		}
+		break
+	}
+	return res
 }
