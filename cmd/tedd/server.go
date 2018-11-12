@@ -151,13 +151,8 @@ type server struct {
 }
 
 type serverRecord struct {
-	transferID            [32]byte
-	key                   [32]byte
-	clearRoot, cipherRoot []byte
-	amount                int64
-	assetID               []byte
-	revealDeadline        time.Time
-	refundDeadline        time.Time
+	tedd.ParseResult
+	transferID [32]byte
 }
 
 const (
@@ -247,12 +242,14 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	}
 
 	rec := &serverRecord{
-		clearRoot:      clearRoot,
-		key:            key,
-		amount:         amount,
-		assetID:        assetID,
-		revealDeadline: revealDeadline,
-		refundDeadline: refundDeadline,
+		ParseResult: tedd.ParseResult{
+			ClearRoot:      clearRoot,
+			Key:            key[:],
+			Amount:         amount,
+			AssetID:        assetID,
+			RevealDeadline: revealDeadline,
+			RefundDeadline: refundDeadline,
+		},
 	}
 
 	_, err = rand.Read(rec.transferID[:])
@@ -285,7 +282,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rec.cipherRoot = cipherRoot
+	rec.CipherRoot = cipherRoot
 
 	err = s.db.Update(func(tx *bbolt.Tx) error {
 		root, err := tx.CreateBucketIfNotExists([]byte("root"))
@@ -300,36 +297,36 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			return errors.Wrapf(err, "creating record bucket %x", rec.transferID[:])
 		}
-		err = bu.Put([]byte("key"), rec.key[:])
+		err = bu.Put([]byte("key"), rec.Key[:])
 		if err != nil {
 			return errors.Wrapf(err, "storing key for record %x", rec.transferID[:])
 		}
-		err = bu.Put([]byte("clearRoot"), rec.clearRoot)
+		err = bu.Put([]byte("clearRoot"), rec.ClearRoot)
 		if err != nil {
 			return errors.Wrapf(err, "storing clearRoot for record %x", rec.transferID[:])
 		}
-		err = bu.Put([]byte("cipherRoot"), rec.cipherRoot)
+		err = bu.Put([]byte("cipherRoot"), rec.CipherRoot)
 		if err != nil {
 			return errors.Wrapf(err, "storing cipherRoot for record %x", rec.transferID[:])
 		}
-		err = bu.Put([]byte("assetID"), rec.assetID)
+		err = bu.Put([]byte("assetID"), rec.AssetID)
 		if err != nil {
 			return errors.Wrapf(err, "storing assetID for record %x", rec.transferID[:])
 		}
 		var amountBuf [binary.MaxVarintLen64]byte
-		m := binary.PutVarint(amountBuf[:], rec.amount)
+		m := binary.PutVarint(amountBuf[:], rec.Amount)
 		err = bu.Put([]byte("amount"), amountBuf[:m])
 		if err != nil {
 			return errors.Wrapf(err, "storing amount for record %x", rec.transferID[:])
 		}
 		var revealDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(revealDeadlineMSBuf[:], bc.Millis(rec.revealDeadline))
+		m = binary.PutUvarint(revealDeadlineMSBuf[:], bc.Millis(rec.RevealDeadline))
 		err = bu.Put([]byte("revealDeadlineMS"), revealDeadlineMSBuf[:m])
 		if err != nil {
 			return errors.Wrapf(err, "storing reveal deadline for record %x", rec.transferID[:])
 		}
 		var refundDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.refundDeadline))
+		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.RefundDeadline))
 		err = bu.Put([]byte("refundDeadlineMS"), refundDeadlineMSBuf[:m])
 		if err != nil {
 			return errors.Wrapf(err, "storing refund deadline for record %x", rec.transferID[:])
@@ -379,17 +376,20 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var (
-		clearRoot, cipherRoot [32]byte
-		assetID               = bc.HashFromBytes(rec.assetID)
+		clearRoot  [32]byte
+		cipherRoot [32]byte
+		key        [32]byte
+		assetID    = bc.HashFromBytes(rec.AssetID)
 	)
-	copy(clearRoot[:], rec.clearRoot)
-	copy(cipherRoot[:], rec.cipherRoot)
+	copy(clearRoot[:], rec.ClearRoot)
+	copy(cipherRoot[:], rec.CipherRoot)
+	copy(key[:], rec.Key)
 
 	s.mu.Lock()
 	now := s.now
 	s.mu.Unlock()
 
-	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, rec.key, rec.amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, now, rec.revealDeadline, rec.refundDeadline)
+	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
@@ -479,23 +479,23 @@ func (s *server) processBlock(r io.ReadCloser) error {
 	s.height = b.Height
 	s.now = bc.FromMillis(b.TimestampMs)
 
-	for len(s.queue) > 0 && !s.queue[0].refundDeadline.After(s.now) {
+	for len(s.queue) > 0 && !s.queue[0].RefundDeadline.After(s.now) {
 		rec := s.queue[0]
 		s.queue = s.queue[1:]
 
 		// time to claim payment
 		go func() {
 			redeem := &tedd.Redeem{
-				RefundDeadline: rec.refundDeadline,
-				Buyer:          rec.buyer,
+				RefundDeadline: rec.RefundDeadline,
+				Buyer:          rec.Buyer,
 				Seller:         s.seller,
-				Amount:         rec.amount,
-				AssetID:        bc.HashFromBytes(rec.assetID),
-				Anchor:         rec.anchor2,
-				Key:            rec.key,
+				Amount:         rec.Amount,
+				AssetID:        bc.HashFromBytes(rec.AssetID),
 			}
-			copy(redeem.CipherRoot[:], rec.cipherRoot)
-			copy(redeem.ClearRoot[:], rec.clearRoot)
+			copy(redeem.Anchor[:], rec.Anchor2)
+			copy(redeem.CipherRoot[:], rec.CipherRoot)
+			copy(redeem.ClearRoot[:], rec.ClearRoot)
+			copy(redeem.Key[:], rec.Key)
 
 			prog, err := tedd.ClaimPayment(redeem)
 			if err != nil {
@@ -536,13 +536,13 @@ func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
 		if bu == nil {
 			return fmt.Errorf("no record bucket %x", transferID)
 		}
-		copy(rec.key[:], bu.Get([]byte("key")))
-		rec.clearRoot = bu.Get([]byte("clearRoot"))
-		rec.cipherRoot = bu.Get([]byte("cipherRoot"))
-		rec.assetID = bu.Get([]byte("assetID"))
+		copy(rec.Key[:], bu.Get([]byte("key")))
+		rec.ClearRoot = bu.Get([]byte("clearRoot"))
+		rec.CipherRoot = bu.Get([]byte("cipherRoot"))
+		rec.AssetID = bu.Get([]byte("assetID"))
 
 		var n int
-		rec.amount, n = binary.Varint(bu.Get([]byte("amount")))
+		rec.Amount, n = binary.Varint(bu.Get([]byte("amount")))
 		if n < 1 {
 			return fmt.Errorf("cannot parse amount in record %x", transferID)
 		}
@@ -550,12 +550,12 @@ func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
 		if n < 1 {
 			return fmt.Errorf("cannot parse reveal deadline in record %x", transferID)
 		}
-		rec.revealDeadline = bc.FromMillis(revealDeadlineMS)
+		rec.RevealDeadline = bc.FromMillis(revealDeadlineMS)
 		refundDeadlineMS, n := binary.Uvarint(bu.Get([]byte("refundDeadlineMS")))
 		if n < 1 {
 			return fmt.Errorf("cannot parse refund deadline in record %x", transferID)
 		}
-		rec.refundDeadline = bc.FromMillis(refundDeadlineMS)
+		rec.RefundDeadline = bc.FromMillis(refundDeadlineMS)
 		return nil
 	})
 	return &rec, err
@@ -571,7 +571,7 @@ func (s *server) queueClaimPayment(transferID []byte) error {
 	defer s.mu.Unlock()
 	s.queue = append(s.queue, rec)
 	sort.Slice(s.queue, func(i, j int) bool {
-		return s.queue[i].refundDeadline.Before(s.queue[j].refundDeadline)
+		return s.queue[i].RefundDeadline.Before(s.queue[j].RefundDeadline)
 	})
 	return nil
 }
