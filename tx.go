@@ -197,27 +197,27 @@ func RevealKey(
 	wantClearRoot, wantCipherRoot [32]byte,
 	now, wantRevealDeadline, wantRefundDeadline time.Time,
 ) ([]byte, error) {
-	parsed := parseLog(paymentProposal)
+	parsed := ParseLog(paymentProposal)
 	if parsed == nil {
 		return nil, errors.New("could not parse payment proposal")
 	}
-	if parsed.revealDeadline.Unix() != wantRevealDeadline.Unix() {
-		return nil, fmt.Errorf("got reveal deadline %s, want %s", parsed.revealDeadline, wantRevealDeadline)
+	if parsed.RevealDeadline.Unix() != wantRevealDeadline.Unix() {
+		return nil, fmt.Errorf("got reveal deadline %s, want %s", parsed.RevealDeadline, wantRevealDeadline)
 	}
-	if parsed.refundDeadline.Unix() != wantRefundDeadline.Unix() {
-		return nil, fmt.Errorf("got refund deadline %s, want %s", parsed.refundDeadline, wantRefundDeadline)
+	if parsed.RefundDeadline.Unix() != wantRefundDeadline.Unix() {
+		return nil, fmt.Errorf("got refund deadline %s, want %s", parsed.RefundDeadline, wantRefundDeadline)
 	}
-	if !bytes.Equal(parsed.cipherRoot, wantCipherRoot[:]) {
-		return nil, fmt.Errorf("got cipher root %x, want %x", parsed.cipherRoot, wantCipherRoot[:])
+	if !bytes.Equal(parsed.CipherRoot, wantCipherRoot[:]) {
+		return nil, fmt.Errorf("got cipher root %x, want %x", parsed.CipherRoot, wantCipherRoot[:])
 	}
-	if !bytes.Equal(parsed.clearRoot, wantClearRoot[:]) {
-		return nil, fmt.Errorf("got clear root %x, want %x", parsed.clearRoot, wantClearRoot[:])
+	if !bytes.Equal(parsed.ClearRoot, wantClearRoot[:]) {
+		return nil, fmt.Errorf("got clear root %x, want %x", parsed.ClearRoot, wantClearRoot[:])
 	}
-	if parsed.amount != amount {
-		return nil, fmt.Errorf("got amount %d, want %d", parsed.amount, amount)
+	if parsed.Amount != amount {
+		return nil, fmt.Errorf("got amount %d, want %d", parsed.Amount, amount)
 	}
-	if !bytes.Equal(parsed.assetID, assetID.Bytes()) {
-		return nil, fmt.Errorf("got asset ID %x, want %x", parsed.assetID, assetID.Bytes())
+	if !bytes.Equal(parsed.AssetID, assetID.Bytes()) {
+		return nil, fmt.Errorf("got asset ID %x, want %x", parsed.AssetID, assetID.Bytes())
 	}
 
 	reservation, err := reserver.Reserve(ctx, amount, assetID, now, wantRevealDeadline)
@@ -366,27 +366,27 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 	fmt.Fprintln(w, "}")
 }
 
-type parseResult struct {
-	amount         int64
-	assetID        []byte
-	anchor1        []byte
-	anchor2        []byte
-	clearRoot      []byte
-	cipherRoot     []byte
-	revealDeadline time.Time
-	refundDeadline time.Time
-	buyer          ed25519.PublicKey
-	seller         ed25519.PublicKey
-	key            []byte
-	outputID       []byte
+type ParseResult struct {
+	Amount         int64
+	AssetID        []byte
+	Anchor1        []byte
+	Anchor2        []byte
+	ClearRoot      []byte
+	CipherRoot     []byte
+	RevealDeadline time.Time
+	RefundDeadline time.Time
+	Buyer          ed25519.PublicKey
+	Seller         ed25519.PublicKey
+	Key            []byte
+	OutputID       []byte
 }
 
-func parseLog(prog []byte) *parseResult {
+func ParseLog(prog []byte) *ParseResult {
 	vm, err := txvm.Validate(prog, 3, math.MaxInt64, txvm.StopAfterFinalize)
 	if vm == nil || err != nil {
 		return nil
 	}
-	var res *parseResult
+	var res *ParseResult
 	for i, item := range vm.Log {
 		if len(item) != 4 {
 			continue
@@ -401,15 +401,15 @@ func parseLog(prog []byte) *parseResult {
 		if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
 			continue
 		}
-		res = &parseResult{
-			revealDeadline: bc.FromMillis(uint64(item[3].(txvm.Int))), // xxx range checking
-			refundDeadline: bc.FromMillis(uint64(vm.Log[i+1][2].(txvm.Int))),
-			buyer:          ed25519.PublicKey(vm.Log[i+2][2].(txvm.Bytes)),
-			cipherRoot:     vm.Log[i+3][2].(txvm.Bytes),
-			clearRoot:      vm.Log[i+4][2].(txvm.Bytes),
-			amount:         int64(vm.Log[i+5][2].(txvm.Int)),
-			assetID:        vm.Log[i+6][2].(txvm.Bytes),
-			anchor1:        vm.Log[i+7][2].(txvm.Bytes),
+		res = &ParseResult{
+			RevealDeadline: bc.FromMillis(uint64(item[3].(txvm.Int))), // xxx range checking
+			RefundDeadline: bc.FromMillis(uint64(vm.Log[i+1][2].(txvm.Int))),
+			Buyer:          ed25519.PublicKey(vm.Log[i+2][2].(txvm.Bytes)),
+			CipherRoot:     vm.Log[i+3][2].(txvm.Bytes),
+			ClearRoot:      vm.Log[i+4][2].(txvm.Bytes),
+			Amount:         int64(vm.Log[i+5][2].(txvm.Int)),
+			AssetID:        vm.Log[i+6][2].(txvm.Bytes),
+			Anchor1:        vm.Log[i+7][2].(txvm.Bytes),
 		}
 		for j := i + 1; j < len(vm.Log); j++ {
 			item := vm.Log[j]
@@ -422,10 +422,10 @@ func parseLog(prog []byte) *parseResult {
 			if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
 				continue
 			}
-			res.anchor1 = vm.Log[j][2].(txvm.Bytes)
-			res.key = vm.Log[j+1][2].(txvm.Bytes)
-			res.seller = ed25519.PublicKey(vm.Log[j+2][2].(txvm.Bytes))
-			res.outputID = vm.Log[j+3][2].(txvm.Bytes)
+			res.Anchor1 = vm.Log[j][2].(txvm.Bytes)
+			res.Key = vm.Log[j+1][2].(txvm.Bytes)
+			res.Seller = ed25519.PublicKey(vm.Log[j+2][2].(txvm.Bytes))
+			res.OutputID = vm.Log[j+3][2].(txvm.Bytes)
 			break
 		}
 		break
