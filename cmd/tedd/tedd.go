@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"path"
 
@@ -32,20 +34,24 @@ func main() {
 
 func add(args []string) {
 	fs := flag.NewFlagSet("", flag.PanicOnError)
-	dir := fs.String("dir", ".", "root of content tree")
+
+	var (
+		dir         = fs.String("dir", ".", "root of content tree")
+		contentType = fs.String("type", "", "MIME content type (default: inferred)")
+	)
 	err := fs.Parse(args)
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, file := range fs.Args() {
-		err = addFile(file, *dir)
+		err = addFile(file, *dir, *contentType)
 		if err != nil {
 			log.Print("WARNING: while processing %s: %s", file, err)
 		}
 	}
 }
 
-func addFile(file, dir string) error {
+func addFile(file, dir, contentType string) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return errors.Wrapf(err, "opening %s", file)
@@ -66,9 +72,14 @@ func addFile(file, dir string) error {
 			return errors.Wrapf(err, "reading %s", file)
 		}
 		tree.Add(buf[:m+n])
+		if i == 0 && contentType == "" {
+			contentType = http.DetectContentType(buf[m : m+n])
+		}
 	}
 	clearHash := tree.Root()
-	p := path.Join(dir, fmt.Sprintf("%x/%x", clearHash[0:1], clearHash[1:2]))
+
+	p, destName := clearHashPath(dir, clearHash)
+
 	err = os.MkdirAll(p, 0700)
 	if err != nil {
 		return errors.Wrapf(err, "creating dir %s", p)
@@ -76,13 +87,17 @@ func addFile(file, dir string) error {
 
 	f.Close()
 
+	err = ioutil.WriteFile(path.Join(p, "content-type"), []byte(contentType), 0600)
+	if err != nil {
+		return errors.Wrapf(err, "storing content type: %s", err)
+	}
+
 	f, err = os.Open(file)
 	if err != nil {
 		return errors.Wrapf(err, "reopening %s", file)
 	}
 	defer f.Close()
 
-	destName := hex.EncodeToString(clearHash)
 	dest, err := os.Create(path.Join(p, destName))
 	if err != nil {
 		return errors.Wrapf(err, "creating destination %s", destName)
@@ -95,4 +110,9 @@ func addFile(file, dir string) error {
 	}
 
 	return nil
+}
+
+func clearHashPath(root string, clearHash []byte) (dir, filename string) {
+	dir = path.Join(root, fmt.Sprintf("%x/%x", clearHash[0:1], clearHash[1:2]))
+	return dir, hex.EncodeToString(clearHash)
 }
