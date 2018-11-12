@@ -15,7 +15,9 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/bobg/tedd"
@@ -138,10 +140,14 @@ type server struct {
 	db        *bbolt.DB // transfer records
 	dir       string    // content
 	seller    ed25519.PublicKey
-	now       time.Time // timestamp of latest blockchain block
 	reserver  *reserver // must satisfy tedd.Reserver
 	signer    tedd.Signer
 	submitter func(prog []byte, version, runlimit int64) error
+
+	mu     sync.Mutex      // protects the following fields
+	height uint64          // height of the last block seen
+	now    time.Time       // timestamp of latest blockchain block
+	queue  []*serverRecord // time-ordered queue of transfers whose payments to claim
 }
 
 type serverRecord struct {
@@ -154,6 +160,11 @@ type serverRecord struct {
 	refundDeadline        time.Time
 }
 
+const (
+	minRevealDur = 10 * time.Minute
+	maxRefundDur = time.Hour
+)
+
 func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	var (
 		clearRootStr      = req.FormValue("clearroot")
@@ -165,58 +176,73 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	clearRoot, err := hex.DecodeString(clearRootStr)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "decoding clear root: %s", err)
+		return
 	}
 
 	dir, filename := clearHashPath(s.dir, clearRoot)
 	f, err := os.Open(path.Join(dir, filename))
 	if os.IsNotExist(err) {
-		http.Error(w, "file not found", http.StatusNotFound)
+		httpErrf(w, http.StatusNotFound, "file not found")
 		return
 	}
 	if err != nil {
-		http.Error(w, fmt.Sprintf("opening %s: %s", filename, err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "opening %s: %s", filename, err)
 		return
 	}
 	defer f.Close()
 
 	contentType, err := ioutil.ReadFile(path.Join(dir, "content-type"))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("getting content type: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "getting content type: %s", err)
 		return
 	}
 
 	amount, err := strconv.ParseInt(amountStr, 10, 64)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "parsing amount: %s", err)
+		return
+	}
+	if amount < 1 {
+		httpErrf(w, http.StatusBadRequest, "non-positive amount %d", amount)
+		return
 	}
 	assetID, err := hex.DecodeString(assetIDStr)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "parsing asset ID: %s", err)
+		return
 	}
 
 	// xxx check amount/assetID is acceptable for clearRoot
 
 	revealDeadlineMS, err := strconv.ParseUint(revealDeadlineStr, 10, 64)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "parsing reveal deadline: %s", err)
+		return
 	}
 	revealDeadline := bc.FromMillis(revealDeadlineMS)
 
-	// xxx check there is enough time between now and revealDeadline
+	if time.Until(revealDeadline) < minRevealDur {
+		httpErrf(w, http.StatusBadRequest, "reveal deadline too soon: %s, require %s", time.Until(revealDeadline), minRevealDur)
+		return
+	}
 
 	refundDeadlineMS, err := strconv.ParseUint(refundDeadlineStr, 10, 64)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "parsing refund deadline: %s", err)
+		return
 	}
 	refundDeadline := bc.FromMillis(refundDeadlineMS)
 
-	// xxx check the time between revealDeadline and refundDeadline isn't too long
+	if refundDeadline.Sub(revealDeadline) > maxRefundDur {
+		httpErrf(w, http.StatusBadRequest, "refund deadline too later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)
+		return
+	}
 
 	var key [32]byte
 	_, err = rand.Read(key[:])
 	if err != nil {
-		http.Error(w, fmt.Sprintf("choosing cipher key: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "choosing cipher key: %s", err)
 		return
 	}
 
@@ -231,7 +257,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	_, err = rand.Read(rec.transferID[:])
 	if err != nil {
-		http.Error(w, fmt.Sprintf("choosing transfer ID: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "choosing transfer ID: %s", err)
 		return
 	}
 
@@ -240,7 +266,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	tmpfile, err := ioutil.TempFile("", "teddserve")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("creating response tempfile: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "creating response tempfile: %s", err)
 		return
 	}
 	tmpfilename := tmpfile.Name()
@@ -249,13 +275,13 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	cipherRoot, err := tedd.Serve(tmpfile, f, key)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("serving data: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "serving data: %s", err)
 		return
 	}
 
 	err = tmpfile.Close()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("closing response tempfile: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "closing response tempfile: %s", err)
 		return
 	}
 
@@ -311,19 +337,21 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return nil
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("storing transfer record: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "storing transfer record: %s", err)
 		return
 	}
 
+	s.queueClaimPayment(rec.transferID[:]) // xxx refactor to use rec instead of looking it up in the db
+
 	tmpfile, err = os.Open(tmpfilename)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("reopening response tempfile: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "reopening response tempfile: %s", err)
 		return
 	}
 	defer tmpfile.Close()
 	_, err = io.Copy(w, tmpfile)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("writing response: %s", err), http.StatusInternalServerError)
+		httpErrf(w, http.StatusInternalServerError, "writing response: %s", err)
 		return
 	}
 }
@@ -336,17 +364,20 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 	transferID, err := hex.DecodeString(transferIDStr)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "decoding transfer ID: %s", err)
+		return
 	}
 
 	rec, err := s.getRecord(transferID)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusInternalServerError, "finding transfer record: %s", err)
+		return
 	}
 
 	paymentProposal, err := hex.DecodeString(paymentProposalStr)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "decoding payment proposal: %s", err)
+		return
 	}
 
 	var (
@@ -356,19 +387,23 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	copy(clearRoot[:], rec.clearRoot)
 	copy(cipherRoot[:], rec.cipherRoot)
 
-	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, rec.key, rec.amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, s.now, rec.revealDeadline, rec.refundDeadline)
+	s.mu.Lock()
+	now := s.now
+	s.mu.Unlock()
+
+	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, rec.key, rec.amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, now, rec.revealDeadline, rec.refundDeadline)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
 	}
 	vm, err := txvm.Validate(prog, 3, math.MaxInt64)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusInternalServerError, "computing runlimit: %s", err)
 		return
 	}
 	err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusInternalServerError, "submitting reveal-key transaction: %s", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -376,8 +411,13 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 // Runs as a goroutine.
 func (s *server) monitorBlockchain(ctx context.Context, url string) {
-	client := new(http.Client)
+	var client http.Client
+
 	for {
+		s.mu.Lock()
+		height := s.height
+		s.mu.Unlock()
+
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s?height=%d", url, height), nil)
 		if err != nil {
 			// xxx
@@ -416,16 +456,60 @@ func (s *server) monitorBlockchain(ctx context.Context, url string) {
 func (s *server) processBlock(r io.ReadCloser) error {
 	defer r.Close()
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	bits, err := ioutil.ReadAll(r)
 	if err != nil {
-		// xxx
+		return errors.Wrap(err, "reading block")
 	}
 	b := new(bc.Block)
 	err = b.FromBytes(bits)
 	if err != nil {
-		// xxx
+		return errors.Wrap(err, "parsing block")
 	}
-	// xxx set server's blockchain timestamp
+
+	s.height = b.Height
+	s.now = bc.FromMillis(b.TimestampMs)
+
+	for len(s.queue) > 0 && !s.queue[0].refundDeadline.After(s.now) {
+		rec := s.queue[0]
+		s.queue = s.queue[1:]
+
+		// time to claim payment
+		go func() {
+			redeem := &tedd.Redeem{
+				RefundDeadline: rec.refundDeadline,
+				Buyer:          rec.buyer,
+				Seller:         rec.seller,
+				Amount:         rec.amount,
+				AssetID:        bc.HashFromBytes(rec.assetID),
+				Anchor:         rec.anchor2,
+				Key:            rec.key,
+			}
+			copy(redeem.CipherRoot[:], rec.cipherRoot)
+			copy(redeem.ClearRoot[:], rec.clearRoot)
+
+			prog, err := tedd.ClaimPayment(redeem)
+			if err != nil {
+				// xxx
+			}
+			vm, err := txvm.Validate(prog, 3, math.MaxInt64)
+			if err != nil {
+				// xxx
+			}
+			err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
+			if err != nil {
+				// xxx
+			}
+			err = s.db.Update(func(tx *bbolt.Tx) error {
+				root := tx.Bucket([]byte("root"))         // xxx check
+				records := root.Bucket([]byte("records")) // xxx check
+				return records.DeleteBucket(rec.transferID[:])
+			})
+		}()
+	}
+
 	return s.reserver.processBlock(b)
 }
 
@@ -468,4 +552,24 @@ func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
 		return nil
 	})
 	return &rec, err
+}
+
+func (s *server) queueClaimPayment(transferID []byte) error {
+	rec, err := s.getRecord(transferID)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queue = append(s.queue, rec)
+	sort.Slice(s.queue, func(i, j int) bool {
+		return s.queue[i].refundDeadline.Before(s.queue[j].refundDeadline)
+	})
+	return nil
+}
+
+func httpErrf(w http.ResponseWriter, code int, msgfmt string, args ...interface{}) {
+	http.Error(w, fmt.Sprintf(msgfmt, args...), code)
+	log.Printf(msgfmt, args...)
 }

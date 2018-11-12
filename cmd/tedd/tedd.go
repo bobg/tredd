@@ -46,7 +46,7 @@ func add(args []string) {
 	for _, file := range fs.Args() {
 		err = addFile(file, *dir, *contentType)
 		if err != nil {
-			log.Print("WARNING: while processing %s: %s", file, err)
+			log.Printf("WARNING: while processing %s: %s", file, err)
 		}
 	}
 }

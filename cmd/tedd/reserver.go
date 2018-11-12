@@ -96,8 +96,7 @@ func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now
 			return errInsufficientFunds
 		}
 		c := asset.Cursor()
-		for amount > 0 {
-			outputID, _ := c.Next() // xxx do we have to do c.First() first?
+		for outputID, _ := c.First(); amount > 0 && outputID != nil; outputID, _ = c.Next() {
 			utxoBucket := asset.Bucket(outputID)
 			if utxoBucket == nil {
 				return errInsufficientFunds
