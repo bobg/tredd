@@ -341,8 +341,6 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	s.queueClaimPayment(rec.transferID[:]) // xxx refactor to use rec instead of looking it up in the db
-
 	tmpfile, err = os.Open(tmpfilename)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "reopening response tempfile: %s", err)
@@ -401,6 +399,15 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusInternalServerError, "computing runlimit: %s", err)
 		return
 	}
+
+	// xxx update rec with anchor2
+
+	err = s.queueClaimPayment(rec.transferID[:]) // xxx refactor to use rec instead of looking it up in the db
+	if err != nil {
+		httpErrf(w, http.StatusInternalServerError, "queueing claim-payment transaction: %s", err)
+		return
+	}
+
 	err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "submitting reveal-key transaction: %s", err)
@@ -481,7 +488,7 @@ func (s *server) processBlock(r io.ReadCloser) error {
 			redeem := &tedd.Redeem{
 				RefundDeadline: rec.refundDeadline,
 				Buyer:          rec.buyer,
-				Seller:         rec.seller,
+				Seller:         s.seller,
 				Amount:         rec.amount,
 				AssetID:        bc.HashFromBytes(rec.assetID),
 				Anchor:         rec.anchor2,
