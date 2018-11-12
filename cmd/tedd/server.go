@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -31,7 +32,7 @@ func serve(args []string) {
 
 	var (
 		listen  = fs.String("listen", "", "listen address")
-		dir     = fs.String("dir", "", "root of content tree")
+		dir     = fs.String("dir", ".", "root of content tree")
 		dbFile  = fs.String("db", "", "file containing server-state db")
 		prvFile = fs.String("prv", "", "file containing server private key")
 	)
@@ -201,15 +202,87 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	}
 	defer f.Close()
 
-	cipherRoot, err := tedd.Serve(w, f, key)
+	tmpfile, err := ioutil.TempFile("", "teddserve")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("creating response tempfile: %s", err), http.StatusInternalServerError)
+		return
+	}
+	tmpfilename := tmpfile.Name()
+	defer os.Remove(tmpfilename)
+	defer tmpfile.Close()
+
+	cipherRoot, err := tedd.Serve(tmpfile, f, key)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("serving data: %s", err), http.StatusInternalServerError)
 		return
 	}
 
+	err = tmpfile.Close()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("closing response tempfile: %s", err), http.StatusInternalServerError)
+		return
+	}
+
 	rec.cipherRoot = cipherRoot
 
-	// xxx store record
+	err = s.db.Update(func(tx *bbolt.Tx) error {
+		root, err := tx.CreateBucketIfNotExists([]byte("root"))
+		if err != nil {
+			return errors.Wrap("getting/creating root bucket")
+		}
+		records, err := root.CreateBucketIfNotExists([]byte("records"))
+		if err != nil {
+			return errors.Wrap("getting/creating records bucket")
+		}
+		bu, err := records.CreateBucket(rec.transferID[:])
+		if err != nil {
+			return errors.Wrapf("creating record bucket %x", rec.transferID[:])
+		}
+		err = bu.Put([]byte("key"), rec.key[:])
+		if err != nil {
+			return errors.Wrapf("storing key for record %x", rec.transferID[:])
+		}
+		err = bu.Put([]byte("clearRoot"), rec.clearRoot)
+		if err != nil {
+			return errors.Wrapf("storing clearRoot for record %x", rec.transferID[:])
+		}
+		err = bu.Put([]byte("cipherRoot"), rec.cipherRoot)
+		if err != nil {
+			return errors.Wrapf("storing cipherRoot for record %x", rec.transferID[:])
+		}
+		err = bu.Put([]byte("assetID"), rec.assetID)
+		if err != nil {
+			return errors.Wrapf("storing assetID for record %x", rec.transferID[:])
+		}
+		var amountBuf [binary.MaxVarintLen64]byte
+		m := binary.PutVarint(amountbuf[:], rec.amount)
+		err = bu.Put([]byte("amount"), amountbuf[:m])
+		if err != nil {
+			return errors.Wrapf("storing amount for record %x", rec.transferID[:])
+		}
+		var refundDeadlineMSBuf [binary.MaxVarintLen64]byte
+		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.refundDeadline))
+		err = bu.Put([]byte("refundDeadlineMS"), refundDeadlineMS[:m])
+		if err != nil {
+			return errors.Wrapf("storing amount for record %x", rec.transferID[:])
+		}
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("storing transfer record: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	tmpfile, err = os.Open(tmpfilename)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("reopening response tempfile: %s", err), http.StatusInternalServerError)
+		return
+	}
+	defer tmpfile.Close()
+	_, err = io.Copy(w, tmpfile)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("writing response: %s", err), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
