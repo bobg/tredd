@@ -243,12 +243,13 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	rec := &serverRecord{
 		ParseResult: tedd.ParseResult{
-			ClearRoot:      clearRoot,
-			Key:            key[:],
 			Amount:         amount,
 			AssetID:        assetID,
+			ClearRoot:      clearRoot,
 			RevealDeadline: revealDeadline,
 			RefundDeadline: refundDeadline,
+			Seller:         s.seller,
+			Key:            key[:],
 		},
 	}
 
@@ -284,55 +285,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	rec.CipherRoot = cipherRoot
 
-	err = s.db.Update(func(tx *bbolt.Tx) error {
-		root, err := tx.CreateBucketIfNotExists([]byte("root"))
-		if err != nil {
-			return errors.Wrap(err, "getting/creating root bucket")
-		}
-		records, err := root.CreateBucketIfNotExists([]byte("records"))
-		if err != nil {
-			return errors.Wrap(err, "getting/creating records bucket")
-		}
-		bu, err := records.CreateBucket(rec.transferID[:])
-		if err != nil {
-			return errors.Wrapf(err, "creating record bucket %x", rec.transferID[:])
-		}
-		err = bu.Put([]byte("key"), rec.Key[:])
-		if err != nil {
-			return errors.Wrapf(err, "storing key for record %x", rec.transferID[:])
-		}
-		err = bu.Put([]byte("clearRoot"), rec.ClearRoot)
-		if err != nil {
-			return errors.Wrapf(err, "storing clearRoot for record %x", rec.transferID[:])
-		}
-		err = bu.Put([]byte("cipherRoot"), rec.CipherRoot)
-		if err != nil {
-			return errors.Wrapf(err, "storing cipherRoot for record %x", rec.transferID[:])
-		}
-		err = bu.Put([]byte("assetID"), rec.AssetID)
-		if err != nil {
-			return errors.Wrapf(err, "storing assetID for record %x", rec.transferID[:])
-		}
-		var amountBuf [binary.MaxVarintLen64]byte
-		m := binary.PutVarint(amountBuf[:], rec.Amount)
-		err = bu.Put([]byte("amount"), amountBuf[:m])
-		if err != nil {
-			return errors.Wrapf(err, "storing amount for record %x", rec.transferID[:])
-		}
-		var revealDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(revealDeadlineMSBuf[:], bc.Millis(rec.RevealDeadline))
-		err = bu.Put([]byte("revealDeadlineMS"), revealDeadlineMSBuf[:m])
-		if err != nil {
-			return errors.Wrapf(err, "storing reveal deadline for record %x", rec.transferID[:])
-		}
-		var refundDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.RefundDeadline))
-		err = bu.Put([]byte("refundDeadlineMS"), refundDeadlineMSBuf[:m])
-		if err != nil {
-			return errors.Wrapf(err, "storing refund deadline for record %x", rec.transferID[:])
-		}
-		return nil
-	})
+	err = s.storeRecord(rec)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "storing transfer record: %s", err)
 		return
@@ -394,19 +347,31 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
 	}
+
+	parsed := tedd.ParseLog(prog)
+	if parsed == nil {
+		httpErrf(w, http.StatusInternalServerError, "parsing tx log")
+		return
+	}
+
+	rec.Anchor1 = parsed.Anchor1
+	rec.Anchor2 = parsed.Anchor2
+	rec.Buyer = parsed.Buyer
+	rec.OutputID = parsed.OutputID
+
+	err = s.storeRecord(rec)
+	if err != nil {
+		httpErrf(w, http.StatusInternalServerError, "updating transfer record")
+		return
+	}
+
 	vm, err := txvm.Validate(prog, 3, math.MaxInt64)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "computing runlimit: %s", err)
 		return
 	}
 
-	// xxx update rec with anchor2
-
-	err = s.queueClaimPayment(rec.transferID[:]) // xxx refactor to use rec instead of looking it up in the db
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "queueing claim-payment transaction: %s", err)
-		return
-	}
+	s.queueClaimPaymentHelper(rec)
 
 	err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
 	if err != nil {
@@ -427,7 +392,7 @@ func (s *server) monitorBlockchain(ctx context.Context, url string) {
 
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s?height=%d", url, height), nil)
 		if err != nil {
-			// xxx
+			log.Fatalf("creating GET request for %s?height=%d: %s", url, height, err)
 		}
 
 		req = req.WithContext(ctx)
@@ -450,7 +415,7 @@ func (s *server) monitorBlockchain(ctx context.Context, url string) {
 
 		err = s.processBlock(resp.Body)
 		if err != nil {
-			// xxx
+			log.Fatalf("processing block: %s", err)
 		}
 		if ctx.Err() != nil {
 			// canceled, exit
@@ -499,15 +464,15 @@ func (s *server) processBlock(r io.ReadCloser) error {
 
 			prog, err := tedd.ClaimPayment(redeem)
 			if err != nil {
-				// xxx
+				log.Fatalf("constructing claim-payment transaction: %s", err)
 			}
 			vm, err := txvm.Validate(prog, 3, math.MaxInt64)
 			if err != nil {
-				// xxx
+				log.Fatalf("computing runlimit for claim-payment transaction: %s", err)
 			}
 			err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
 			if err != nil {
-				// xxx
+				log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
 			}
 			err = s.db.Update(func(tx *bbolt.Tx) error {
 				root := tx.Bucket([]byte("root"))         // xxx check
@@ -561,19 +526,107 @@ func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
 	return &rec, err
 }
 
+func (s *server) storeRecord(rec *serverRecord) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		root, err := tx.CreateBucketIfNotExists([]byte("root"))
+		if err != nil {
+			return errors.Wrap(err, "getting/creating root bucket")
+		}
+		records, err := root.CreateBucketIfNotExists([]byte("records"))
+		if err != nil {
+			return errors.Wrap(err, "getting/creating records bucket")
+		}
+		bu, err := records.CreateBucketIfNotExists(rec.transferID[:])
+		if err != nil {
+			return errors.Wrapf(err, "creating record bucket %x", rec.transferID[:])
+		}
+
+		var amountBuf [binary.MaxVarintLen64]byte
+		m := binary.PutVarint(amountBuf[:], rec.Amount)
+		err = bu.Put([]byte("amount"), amountBuf[:m])
+		if err != nil {
+			return errors.Wrap(err, "storing amount")
+		}
+
+		err = bu.Put([]byte("assetID"), rec.AssetID)
+		if err != nil {
+			return errors.Wrap(err, "storing assetID")
+		}
+
+		err = bu.Put([]byte("anchor1"), rec.Anchor1)
+		if err != nil {
+			return errors.Wrap(err, "storing anchor1")
+		}
+
+		err = bu.Put([]byte("anchor2"), rec.Anchor2)
+		if err != nil {
+			return errors.Wrap(err, "storing anchor2")
+		}
+
+		err = bu.Put([]byte("clearRoot"), rec.ClearRoot)
+		if err != nil {
+			return errors.Wrap(err, "storing clearRoot")
+		}
+
+		err = bu.Put([]byte("cipherRoot"), rec.CipherRoot)
+		if err != nil {
+			return errors.Wrap(err, "storing cipherRoot")
+		}
+
+		var revealDeadlineMSBuf [binary.MaxVarintLen64]byte
+		m = binary.PutUvarint(revealDeadlineMSBuf[:], bc.Millis(rec.RevealDeadline))
+		err = bu.Put([]byte("revealDeadlineMS"), revealDeadlineMSBuf[:m])
+		if err != nil {
+			return errors.Wrap(err, "storing reveal deadline")
+		}
+
+		var refundDeadlineMSBuf [binary.MaxVarintLen64]byte
+		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.RefundDeadline))
+		err = bu.Put([]byte("refundDeadlineMS"), refundDeadlineMSBuf[:m])
+		if err != nil {
+			return errors.Wrap(err, "storing refund deadline")
+		}
+
+		err = bu.Put([]byte("buyer"), rec.Buyer)
+		if err != nil {
+			return errors.Wrap(err, "storing buyer")
+		}
+
+		err = bu.Put([]byte("seller"), rec.Seller)
+		if err != nil {
+			return errors.Wrap(err, "storing seller")
+		}
+
+		err = bu.Put([]byte("key"), rec.Key)
+		if err != nil {
+			return errors.Wrap(err, "storing key")
+		}
+
+		err = bu.Put([]byte("outputID"), rec.OutputID)
+		if err != nil {
+			return errors.Wrap(err, "storing outputID")
+		}
+
+		return nil
+	})
+}
+
 func (s *server) queueClaimPayment(transferID []byte) error {
 	rec, err := s.getRecord(transferID)
 	if err != nil {
 		return err
 	}
+	s.queueClaimPaymentHelper(rec)
+	return nil
+}
 
+func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queue = append(s.queue, rec)
 	sort.Slice(s.queue, func(i, j int) bool {
 		return s.queue[i].RefundDeadline.Before(s.queue[j].RefundDeadline)
 	})
-	return nil
 }
 
 func httpErrf(w http.ResponseWriter, code int, msgfmt string, args ...interface{}) {
