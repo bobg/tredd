@@ -15,9 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/bobg/tedd"
@@ -76,10 +74,7 @@ func serve(args []string) {
 		db:     db,
 		dir:    *dir,
 		seller: seller,
-		reserver: &reserver{
-			pubkey: seller,
-			db:     db,
-		},
+		o:      newObserver(db, seller),
 	}
 	s.signer = func(msg []byte) ([]byte, error) {
 		return ed25519.Sign(prv, msg), nil
@@ -129,7 +124,7 @@ func serve(args []string) {
 		}
 	}
 
-	go s.monitorBlockchain(ctx, getURL)
+	go s.o.run(ctx)
 
 	http.HandleFunc("/", s.serve)
 	http.HandleFunc("/propose-payment", s.revealKey)
@@ -137,17 +132,12 @@ func serve(args []string) {
 }
 
 type server struct {
-	db        *bbolt.DB // transfer records
+	db        *bbolt.DB // transfer records and blockchain info
 	dir       string    // content
 	seller    ed25519.PublicKey
-	reserver  *reserver // must satisfy tedd.Reserver
+	o         *observer
 	signer    tedd.Signer
 	submitter func(prog []byte, version, runlimit int64) error
-
-	mu     sync.Mutex      // protects the following fields
-	height uint64          // height of the last block seen
-	now    time.Time       // timestamp of latest blockchain block
-	queue  []*serverRecord // time-ordered queue of transfers whose payments to claim
 }
 
 type serverRecord struct {
@@ -338,9 +328,11 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	copy(cipherRoot[:], rec.CipherRoot)
 	copy(key[:], rec.Key)
 
-	s.mu.Lock()
-	now := s.now
-	s.mu.Unlock()
+	now, err := s.now()
+	if err != nil {
+		httpErrf(w, http.StatusInternalServerError, "getting blockchain time: %s", err)
+		return
+	}
 
 	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
@@ -379,110 +371,6 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// Runs as a goroutine.
-func (s *server) monitorBlockchain(ctx context.Context, url string) {
-	var client http.Client
-
-	for {
-		s.mu.Lock()
-		height := s.height
-		s.mu.Unlock()
-
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s?height=%d", url, height), nil)
-		if err != nil {
-			log.Fatalf("creating GET request for %s?height=%d: %s", url, height, err)
-		}
-
-		req = req.WithContext(ctx)
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("error getting block at height %d from %s, will retry in ~5 seconds: %s", height, url, err)
-
-			timer := time.NewTimer(5 * time.Second) // xxx add jitter
-			select {
-			case <-timer.C:
-				continue
-
-			case <-ctx.Done():
-				// canceled, exit
-				timer.Stop()
-				log.Print("context canceled, blockchain monitor exiting")
-				return
-			}
-		}
-
-		err = s.processBlock(resp.Body)
-		if err != nil {
-			log.Fatalf("processing block: %s", err)
-		}
-		if ctx.Err() != nil {
-			// canceled, exit
-			log.Print("context canceled, blockchain monitor exiting")
-			return
-		}
-	}
-}
-
-func (s *server) processBlock(r io.ReadCloser) error {
-	defer r.Close()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	bits, err := ioutil.ReadAll(r)
-	if err != nil {
-		return errors.Wrap(err, "reading block")
-	}
-	b := new(bc.Block)
-	err = b.FromBytes(bits)
-	if err != nil {
-		return errors.Wrap(err, "parsing block")
-	}
-
-	s.height = b.Height
-	s.now = bc.FromMillis(b.TimestampMs)
-
-	for len(s.queue) > 0 && !s.queue[0].RefundDeadline.After(s.now) {
-		rec := s.queue[0]
-		s.queue = s.queue[1:]
-
-		// time to claim payment
-		go func() {
-			redeem := &tedd.Redeem{
-				RefundDeadline: rec.RefundDeadline,
-				Buyer:          rec.Buyer,
-				Seller:         s.seller,
-				Amount:         rec.Amount,
-				AssetID:        bc.HashFromBytes(rec.AssetID),
-			}
-			copy(redeem.Anchor[:], rec.Anchor2)
-			copy(redeem.CipherRoot[:], rec.CipherRoot)
-			copy(redeem.ClearRoot[:], rec.ClearRoot)
-			copy(redeem.Key[:], rec.Key)
-
-			prog, err := tedd.ClaimPayment(redeem)
-			if err != nil {
-				log.Fatalf("constructing claim-payment transaction: %s", err)
-			}
-			vm, err := txvm.Validate(prog, 3, math.MaxInt64)
-			if err != nil {
-				log.Fatalf("computing runlimit for claim-payment transaction: %s", err)
-			}
-			err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
-			if err != nil {
-				log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
-			}
-			err = s.db.Update(func(tx *bbolt.Tx) error {
-				root := tx.Bucket([]byte("root"))         // xxx check
-				records := root.Bucket([]byte("records")) // xxx check
-				return records.DeleteBucket(rec.transferID[:])
-			})
-		}()
-	}
-
-	return s.reserver.processBlock(b)
 }
 
 func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
@@ -621,11 +509,36 @@ func (s *server) queueClaimPayment(transferID []byte) error {
 }
 
 func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.queue = append(s.queue, rec)
-	sort.Slice(s.queue, func(i, j int) bool {
-		return s.queue[i].RefundDeadline.Before(s.queue[j].RefundDeadline)
+	s.o.enqueue(rec.RefundDeadline, func() {
+		redeem := &tedd.Redeem{
+			RefundDeadline: rec.RefundDeadline,
+			Buyer:          rec.Buyer,
+			Seller:         s.seller,
+			Amount:         rec.Amount,
+			AssetID:        bc.HashFromBytes(rec.AssetID),
+		}
+		copy(redeem.Anchor[:], rec.Anchor2)
+		copy(redeem.CipherRoot[:], rec.CipherRoot)
+		copy(redeem.ClearRoot[:], rec.ClearRoot)
+		copy(redeem.Key[:], rec.Key)
+
+		prog, err := tedd.ClaimPayment(redeem)
+		if err != nil {
+			log.Fatalf("constructing claim-payment transaction: %s", err)
+		}
+		vm, err := txvm.Validate(prog, 3, math.MaxInt64)
+		if err != nil {
+			log.Fatalf("computing runlimit for claim-payment transaction: %s", err)
+		}
+		err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
+		if err != nil {
+			log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
+		}
+		err = s.db.Update(func(tx *bbolt.Tx) error {
+			root := tx.Bucket([]byte("root"))         // xxx check
+			records := root.Bucket([]byte("records")) // xxx check
+			return records.DeleteBucket(rec.transferID[:])
+		})
 	})
 }
 

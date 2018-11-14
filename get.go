@@ -16,12 +16,12 @@ var (
 	errPartial      = errors.New("partial non-final chunk")
 )
 
-type reader interface {
+type Reader interface {
 	io.Reader
 	io.ByteReader
 }
 
-func Get(r reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
+func Get(r Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
 		wasPartial            bool // only the final chunk may have a partial length.
 		clearMT               = merkle.NewTree(sha256.New())

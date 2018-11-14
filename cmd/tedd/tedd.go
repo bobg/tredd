@@ -25,6 +25,8 @@ func main() {
 	switch os.Args[1] {
 	case "add":
 		add(os.Args[2:])
+	case "get":
+		get(os.Args[2:])
 	case "serve":
 		serve(os.Args[2:])
 	default:
