@@ -27,6 +27,7 @@ type observer struct {
 	db     *bbolt.DB
 	pubkey ed25519.PublicKey
 	r      *reserver
+	url    string
 
 	mu    sync.Mutex // protects cb and queue
 	cb    func(*bc.Tx)
@@ -38,11 +39,12 @@ type timer struct {
 	f func()
 }
 
-func newObserver(db *bbolt.DB, pubkey ed25519.PublicKey) *observer {
+func newObserver(db *bbolt.DB, pubkey ed25519.PublicKey, url string) *observer {
 	return &observer{
 		db:     db,
 		pubkey: pubkey,
 		r:      &reserver{db: db},
+		url:    url,
 	}
 }
 
@@ -125,6 +127,8 @@ func (o *observer) run(ctx context.Context) {
 				return errors.Wrap(err, "updating reserver")
 			}
 
+			now := bc.FromMillis(b.TimestampMs)
+
 			o.mu.Lock()
 			for len(o.queue) > 0 && !o.queue[0].t.After(now) {
 				go o.queue[0].f()
@@ -138,6 +142,7 @@ func (o *observer) run(ctx context.Context) {
 				}
 			}
 			o.mu.Unlock()
+			return nil
 		}()
 		if err != nil {
 			// xxx
@@ -159,7 +164,7 @@ func (o *observer) height() (uint64, error) {
 		var n int
 		height, n = binary.Uvarint(heightBits)
 		if n < 1 {
-			return 0, fmt.Errorf("parsing blockchain height")
+			return fmt.Errorf("parsing blockchain height")
 		}
 		return nil
 	})
@@ -173,7 +178,7 @@ func (o *observer) now() (time.Time, error) {
 		nowMSBits := root.Get([]byte("nowMS")) // xxx check
 		nowMS, n := binary.Uvarint(nowMSBits)
 		if n < 1 {
-			return 0, fmt.Errorf("parsing blockchain time")
+			return fmt.Errorf("parsing blockchain time")
 		}
 		result = bc.FromMillis(nowMS)
 		return nil

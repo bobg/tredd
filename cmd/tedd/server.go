@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -24,7 +23,6 @@ import (
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
 	"github.com/coreos/bbolt"
-	"github.com/golang/protobuf/proto"
 )
 
 func serve(args []string) {
@@ -74,30 +72,12 @@ func serve(args []string) {
 		db:     db,
 		dir:    *dir,
 		seller: seller,
-		o:      newObserver(db, seller),
+		o:      newObserver(db, seller, getURL),
 	}
 	s.signer = func(msg []byte) ([]byte, error) {
 		return ed25519.Sign(prv, msg), nil
 	}
-	s.submitter = func(prog []byte, version, runlimit int64) error {
-		rawTx := &bc.RawTx{
-			Version:  version,
-			Runlimit: runlimit,
-			Program:  prog,
-		}
-		bits, err := proto.Marshal(rawTx)
-		if err != nil {
-			return errors.Wrap(err, "serializing tx")
-		}
-		resp, err := http.Post(submitURL, "application/octet-stream", bytes.NewReader(bits))
-		if err != nil {
-			return errors.Wrap(err, "submitting tx")
-		}
-		if resp.StatusCode/100 != 2 {
-			return fmt.Errorf("status code %d when submitting tx", resp.StatusCode)
-		}
-		return nil
-	}
+	s.submitter = submitter(submitURL)
 
 	var transferIDs [][]byte
 	err = db.View(func(tx *bbolt.Tx) error {
@@ -126,7 +106,7 @@ func serve(args []string) {
 
 	go s.o.run(ctx)
 
-	http.HandleFunc("/", s.serve)
+	http.HandleFunc("/request", s.serve)
 	http.HandleFunc("/propose-payment", s.revealKey)
 	http.ListenAndServe(*listen, nil)
 }
@@ -328,13 +308,13 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	copy(cipherRoot[:], rec.CipherRoot)
 	copy(key[:], rec.Key)
 
-	now, err := s.now()
+	now, err := s.o.now()
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "getting blockchain time: %s", err)
 		return
 	}
 
-	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.reserver, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
+	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return

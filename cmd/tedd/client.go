@@ -3,19 +3,24 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/bobg/merkle"
 	"github.com/bobg/tedd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
+	"github.com/chain/txvm/protocol/txvm"
 	"github.com/coreos/bbolt"
 )
 
@@ -34,12 +39,19 @@ func get(args []string) {
 		refundDeadlineDurStr = flag.String("refund", "", "time from reveal deadline until refund deadline")
 		dbFile               = fs.String("db", "", "file containing client-state db")
 		prvFile              = fs.String("prv", "", "file containing client private key")
+		serverURL            = fs.String("server", "", "base URL of tedd server")
+		bcURL                = fs.String("bcurl", "", "base URL of blockchain server")
 	)
 
 	err := fs.Parse(args)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	var (
+		requestURL        = *serverURL + "/request"
+		proposePaymentURL = *serverURL + "/propose-payment"
+	)
 
 	f, err := os.Open(*prvFile)
 	if err != nil {
@@ -87,7 +99,7 @@ func get(args []string) {
 	}
 	defer db.Close()
 
-	o := newObserver(db, buyer)
+	o := newObserver(db, buyer, *bcURL+"/get")
 	go o.run(ctx)
 
 	var vals url.Values
@@ -135,6 +147,8 @@ func get(args []string) {
 	}
 	anchor1 := parsed.Anchor1
 
+	submit := submitter(*bcURL + "/submit")
+
 	o.setcb(func(tx *bc.Tx) {
 		defer cancel()
 
@@ -155,11 +169,65 @@ func get(args []string) {
 			redeem := &tedd.Redeem{
 				// xxx
 			}
-			prog, err := tedd.ClaimRefund(redeem, err.Index, cipherChunk, clearHash, cipherProof, clearProof)
+
+			var (
+				refHash        [32 + binary.MaxVarintLen64]byte
+				refCipherChunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
+			)
+			m := binary.PutUvarint(refHash[:], err.Index)
+			binary.PutUvarint(refCipherChunk[:], err.Index)
+
+			g, err := clearHashes.Get(err.Index)
 			if err != nil {
 				// xxx
 			}
-			err = submitter(xxx)
+			copy(refHash[m:], g)
+
+			g, err = cipherChunks.Get(err.Index)
+			if err != nil {
+				// xxx
+			}
+			copy(refCipherChunk[m:], g)
+
+			var (
+				clearTree  = merkle.NewProofTree(sha256.New(), refHash[:m+32])
+				cipherTree = merkle.NewProofTree(sha256.New(), refCipherChunk[:m+len(g)])
+				hasher     = sha256.New()
+			)
+			for index := uint64(0); ; index++ {
+				var chunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
+				m := binary.PutUvarint(chunk[:], index)
+				ci, err := cipherChunks.Get(index)
+				if err != nil {
+					// xxx
+				}
+				copy(chunk[m:], ci)
+				n := len(ci)
+
+				var h [32 + binary.MaxVarintLen64]byte
+				binary.PutUvarint(h[:], index)
+				merkle.LeafHash(hasher, h[:m], chunk[:m+n])
+
+				clearTree.Add(h[:m+32])
+				cipherTree.Add(chunk[:m+n])
+			}
+
+			var (
+				clearProof  = clearTree.Proof()
+				cipherProof = cipherTree.Proof()
+			)
+
+			prog, err := tedd.ClaimRefund(redeem, int64(err.Index), refCipherChunk[m:m+len(g)], clearHash[m:m+32], cipherProof, clearProof) // xxx range check
+			if err != nil {
+				// xxx
+			}
+
+			vm, err := txvm.Validate(prog, 3, math.MaxInt64)
+			if err != nil {
+				// xxx
+			}
+
+			err = submit(prog, 3, math.MaxInt64-vm.Runlimit())
 			if err != nil {
 				// xxx
 			}
