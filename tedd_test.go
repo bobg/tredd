@@ -90,8 +90,8 @@ func (t *testChunkStore) Get(index uint64) ([]byte, error) {
 	return t.chunks[index], nil
 }
 
-func (t *testChunkStore) Len() int {
-	return len(t.chunks)
+func (t *testChunkStore) Len() (int, error) {
+	return len(t.chunks), nil
 }
 
 func BenchmarkCrypt(b *testing.B) {
