@@ -7,12 +7,14 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"time"
 
@@ -41,6 +43,7 @@ func get(args []string) {
 		prvFile              = fs.String("prv", "", "file containing client private key")
 		serverURL            = fs.String("server", "", "base URL of tedd server")
 		bcURL                = fs.String("bcurl", "", "base URL of blockchain server")
+		dir                  = fs.String("dir", "", "root dir for file transfers")
 	)
 
 	err := fs.Parse(args)
@@ -119,6 +122,24 @@ func get(args []string) {
 		log.Fatalf("status code %d from initial HTTP request", resp.StatusCode)
 	}
 
+	var (
+		transferID       = resp.Header.Get("X-Tedd-Transfer-Id") // xxx need to get this into the propose-payment tx below
+		clearHashesFile  = path.Join(*dir, fmt.Sprintf("hashes-%s", transferID))
+		cipherChunksFile = path.Join(*dir, fmt.Sprintf("chunks-%s", transferID))
+	)
+
+	clearHashes := &fileChunkStore{
+		filename:  clearHashesFile,
+		chunksize: 32,
+	}
+	defer os.Remove(clearHashesFile)
+
+	cipherChunks := &fileChunkStore{
+		filename:  cipherChunksFile,
+		chunksize: tedd.ChunkSize,
+	}
+	defer os.Remove(cipherChunksFile)
+
 	cipherRoot, err := tedd.Get(&bytereader{r: resp.Body}, clearRoot, clearHashes, cipherChunks)
 	if err != nil {
 		log.Fatal(err)
@@ -162,28 +183,43 @@ func get(args []string) {
 		// Payment has been accepted.
 		var key [32]byte
 		copy(key[:], parsed.Key)
-		err := tedd.Decrypt(out, clearHashes, cipherChunks, key)
-		if err, ok := err.(tedd.BadClearHashError); ok {
+
+		out, err := os.Create(path.Join(*dir, hex.EncodeToString(clearRoot[:])))
+		if err != nil {
+			// xxx
+		}
+		defer out.Close()
+
+		err = tedd.Decrypt(out, clearHashes, cipherChunks, key)
+		if bchErr, ok := err.(tedd.BadClearHashError); ok {
 			log.Print("payment accepted but decryption failed, now claiming refund")
 
 			redeem := &tedd.Redeem{
-				// xxx
+				RefundDeadline: refundDeadline,
+				Buyer:          buyer,
+				Seller:         parsed.Seller,
+				Amount:         *amount, // xxx right?
+				AssetID:        assetID,
+				ClearRoot:      clearRoot,
+				Key:            key,
 			}
+			copy(redeem.CipherRoot[:], cipherRoot)
+			copy(redeem.Anchor[:], parsed.Anchor2) // xxx right?
 
 			var (
 				refHash        [32 + binary.MaxVarintLen64]byte
 				refCipherChunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
 			)
-			m := binary.PutUvarint(refHash[:], err.Index)
-			binary.PutUvarint(refCipherChunk[:], err.Index)
+			m := binary.PutUvarint(refHash[:], bchErr.Index)
+			binary.PutUvarint(refCipherChunk[:], bchErr.Index)
 
-			g, err := clearHashes.Get(err.Index)
+			g, err := clearHashes.Get(bchErr.Index)
 			if err != nil {
 				// xxx
 			}
 			copy(refHash[m:], g)
 
-			g, err = cipherChunks.Get(err.Index)
+			g, err = cipherChunks.Get(bchErr.Index)
 			if err != nil {
 				// xxx
 			}
@@ -194,7 +230,11 @@ func get(args []string) {
 				cipherTree = merkle.NewProofTree(sha256.New(), refCipherChunk[:m+len(g)])
 				hasher     = sha256.New()
 			)
-			for index := uint64(0); ; index++ {
+			nchunks, err := cipherChunks.Len()
+			if err != nil {
+				// xxx
+			}
+			for index := uint64(0); index < uint64(nchunks); index++ {
 				var chunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
 				m := binary.PutUvarint(chunk[:], index)
 				ci, err := cipherChunks.Get(index)
@@ -217,7 +257,7 @@ func get(args []string) {
 				cipherProof = cipherTree.Proof()
 			)
 
-			prog, err := tedd.ClaimRefund(redeem, int64(err.Index), refCipherChunk[m:m+len(g)], clearHash[m:m+32], cipherProof, clearProof) // xxx range check
+			prog, err := tedd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
 			if err != nil {
 				// xxx
 			}
