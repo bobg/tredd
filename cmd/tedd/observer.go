@@ -55,12 +55,13 @@ func (o *observer) run(ctx context.Context) {
 	for {
 		height, err := o.height()
 		if err != nil {
-			// xxx
+			log.Fatalf("getting blockchain height: %s", err)
 		}
 
-		req, err := http.NewRequest("GET", fmt.Sprintf("%s?height=%d", o.url, height+1), nil)
+		getBlockURL := fmt.Sprintf("%s?height=%d", o.url, height+1)
+		req, err := http.NewRequest("GET", getBlockURL, nil)
 		if err != nil {
-			// xxx
+			log.Fatalf("constructing get-block request for %s: %s", getBlockURL, err)
 		}
 		req = req.WithContext(ctx)
 
@@ -145,7 +146,7 @@ func (o *observer) run(ctx context.Context) {
 			return nil
 		}()
 		if err != nil {
-			// xxx
+			log.Fatalf("processing block %d: %s", height+1, err)
 		}
 	}
 }
@@ -159,8 +160,14 @@ func (o *observer) setcb(cb func(*bc.Tx)) {
 func (o *observer) height() (uint64, error) {
 	var height uint64
 	err := o.db.View(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte("root"))        // xxx check
-		heightBits := root.Get([]byte("height")) // xxx check
+		root, err := tx.CreateBucketIfNotExists([]byte("root"))
+		if err != nil {
+			return errors.Wrap(err, "getting/creating root bucket")
+		}
+		heightBits := root.Get([]byte("height"))
+		if len(heightBits) == 0 {
+			return nil
+		}
 		var n int
 		height, n = binary.Uvarint(heightBits)
 		if n < 1 {

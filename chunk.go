@@ -12,7 +12,7 @@ const ChunkSize = 8192
 type ChunkStore interface {
 	Add([]byte) error
 	Get(uint64) ([]byte, error)
-	Len() (int, error)
+	Len() (int64, error)
 }
 
 var errMissingChunk = errors.New("missing chunk")

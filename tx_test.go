@@ -140,7 +140,7 @@ func TestTx(t *testing.T) {
 		Seller:         seller,
 		Amount:         20,
 		AssetID:        assetID,
-		Anchor:         anchor,
+		Anchor2:        anchor,
 		CipherRoot:     cipherRoot,
 		ClearRoot:      clearRoot,
 		Key:            key,

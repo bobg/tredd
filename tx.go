@@ -84,7 +84,7 @@ func ProposePayment(
 
 	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
 	fmt.Fprintf(buf, "4 eq verify\n")
-	fmt.Fprintf(buf, "3 roll 'R' eq verify\n") // xxx use txvm.TimerangeCode and other such constants
+	fmt.Fprintf(buf, "3 roll 'R' eq verify\n")
 	fmt.Fprintf(buf, "2 roll x'%x' eq verify\n", teddContractSeed[:])
 	fmt.Fprintf(buf, "%d eq verify\n", bc.Millis(revealDeadline))
 	fmt.Fprintf(buf, "0 eq verify\n")
@@ -302,7 +302,7 @@ type Redeem struct {
 	Buyer, Seller         ed25519.PublicKey
 	Amount                int64 // sum of buyer payment + collateral
 	AssetID               bc.Hash
-	Anchor                [32]byte
+	Anchor2               [32]byte // anchor of payment+collateral value
 	CipherRoot, ClearRoot [32]byte
 	Key                   [32]byte
 }
@@ -318,7 +318,7 @@ func redeem(r *Redeem) *bytes.Buffer {
 		r.Buyer,
 		r.Amount,
 		r.AssetID.Bytes(),
-		r.Anchor[:],
+		r.Anchor2[:],
 		r.CipherRoot[:],
 		r.ClearRoot[:],
 		r.Key[:],

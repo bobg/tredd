@@ -178,7 +178,11 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// xxx check amount/assetID is acceptable for clearRoot
+	err = s.checkPrice(amount, assetID, clearRoot)
+	if err != nil {
+		httpErrf(w, http.StatusBadRequest, "proposed payment rejected: %s", err)
+		return
+	}
 
 	revealDeadlineMS, err := strconv.ParseUint(revealDeadlineStr, 10, 64)
 	if err != nil {
@@ -279,7 +283,8 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 	paymentProposal, err := ioutil.ReadAll(req.Body)
 	if err != nil {
-		// xxx
+		httpErrf(w, http.StatusBadRequest, "reading payment proposal: %s", err)
+		return
 	}
 
 	transferID, err := hex.DecodeString(transferIDStr)
@@ -493,7 +498,7 @@ func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 			Amount:         rec.Amount,
 			AssetID:        bc.HashFromBytes(rec.AssetID),
 		}
-		copy(redeem.Anchor[:], rec.Anchor2)
+		copy(redeem.Anchor2[:], rec.Anchor2)
 		copy(redeem.CipherRoot[:], rec.CipherRoot)
 		copy(redeem.ClearRoot[:], rec.ClearRoot)
 		copy(redeem.Key[:], rec.Key)
@@ -511,11 +516,27 @@ func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 			log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
 		}
 		err = s.db.Update(func(tx *bbolt.Tx) error {
-			root := tx.Bucket([]byte("root"))         // xxx check
-			records := root.Bucket([]byte("records")) // xxx check
+			root := tx.Bucket([]byte("root"))
+			if root == nil {
+				return errors.New("root bucket not found")
+			}
+			records := root.Bucket([]byte("records"))
+			if records == nil {
+				return errors.New("records bucket not found")
+			}
 			return records.DeleteBucket(rec.transferID[:])
 		})
+		if err != nil {
+			log.Printf("WARNING: could not delete transfer record %x: %s", rec.transferID[:], err)
+		}
 	})
+}
+
+func (s *server) checkPrice(amount int64, assetID []byte, clearRoot []byte) error {
+	if amount > 0 { // TODO: per-content pricing!
+		return nil
+	}
+	return errors.New("amount must be 1 or higher")
 }
 
 func httpErrf(w http.ResponseWriter, code int, msgfmt string, args ...interface{}) {

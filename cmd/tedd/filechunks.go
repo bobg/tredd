@@ -1,12 +1,30 @@
 package main
 
 import (
+	"io"
 	"os"
 )
 
 type fileChunkStore struct {
 	filename  string
 	chunksize int64
+	size      int64 // size of file in bytes
+}
+
+func newFileChunkStore(filename string, chunksize int64) (*fileChunkStore, error) {
+	result := &fileChunkStore{
+		filename:  filename,
+		chunksize: chunksize,
+	}
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		// ok
+	} else if err != nil {
+		return nil, err
+	} else {
+		result.size = info.Size()
+	}
+	return result, nil
 }
 
 func (s *fileChunkStore) Add(bits []byte) error {
@@ -16,7 +34,11 @@ func (s *fileChunkStore) Add(bits []byte) error {
 	}
 	defer f.Close()
 	_, err = f.Write(bits)
-	return err
+	if err != nil {
+		return err
+	}
+	s.size += int64(len(bits))
+	return nil
 }
 
 func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
@@ -32,17 +54,19 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	}
 
 	result := make([]byte, s.chunksize)
-	n, err := f.Read(result) // xxx use ReadFull, allow partial chunks only at eof
+
+	n, err := io.ReadFull(f, result)
+	if err == io.ErrUnexpectedEOF {
+		// Partial chunk allowed only at EOF.
+		if int64(index)*s.chunksize+int64(n) == s.size {
+			return result[:n], nil
+		}
+	}
 	return result[:n], err
 }
 
-func (s *fileChunkStore) Len() (int, error) {
-	info, err := os.Stat(s.filename)
-	if err != nil {
-		return 0, err
-	}
-	size := info.Size()
-	n, r := int(size/s.chunksize), size%s.chunksize // xxx range check
+func (s *fileChunkStore) Len() (int64, error) {
+	n, r := s.size/s.chunksize, s.size%s.chunksize
 	if r > 0 {
 		n++
 	}

@@ -128,17 +128,17 @@ func get(args []string) {
 		cipherChunksFile = path.Join(*dir, fmt.Sprintf("chunks-%s", transferID))
 	)
 
-	clearHashes := &fileChunkStore{
-		filename:  clearHashesFile,
-		chunksize: 32,
+	clearHashes, err := newFileChunkStore(clearHashesFile, 32)
+	if err != nil {
+		log.Fatalf("creating hash chunk store: %s", err)
 	}
-	defer os.Remove(clearHashesFile)
+	defer os.Remove(clearHashesFile) // TODO: keep this around if needed to recover from errors
 
-	cipherChunks := &fileChunkStore{
-		filename:  cipherChunksFile,
-		chunksize: tedd.ChunkSize,
+	cipherChunks, err := newFileChunkStore(cipherChunksFile, tedd.ChunkSize)
+	if err != nil {
+		log.Fatalf("creating cipher chunk store: %s", err)
 	}
-	defer os.Remove(cipherChunksFile)
+	defer os.Remove(cipherChunksFile) // TODO: keep this around if needed to recover from errors
 
 	cipherRoot, err := tedd.Get(&bytereader{r: resp.Body}, clearRoot, clearHashes, cipherChunks)
 	if err != nil {
@@ -184,9 +184,10 @@ func get(args []string) {
 		var key [32]byte
 		copy(key[:], parsed.Key)
 
-		out, err := os.Create(path.Join(*dir, hex.EncodeToString(clearRoot[:])))
+		outFileName := path.Join(*dir, hex.EncodeToString(clearRoot[:]))
+		out, err := os.Create(outFileName)
 		if err != nil {
-			// xxx
+			log.Fatalf("creating %s: %s", outFileName, err) // TODO: more graceful/recoverable handling
 		}
 		defer out.Close()
 
@@ -198,13 +199,13 @@ func get(args []string) {
 				RefundDeadline: refundDeadline,
 				Buyer:          buyer,
 				Seller:         parsed.Seller,
-				Amount:         *amount, // xxx right?
+				Amount:         2 * *amount,
 				AssetID:        assetID,
 				ClearRoot:      clearRoot,
 				Key:            key,
 			}
 			copy(redeem.CipherRoot[:], cipherRoot)
-			copy(redeem.Anchor[:], parsed.Anchor2) // xxx right?
+			copy(redeem.Anchor2[:], parsed.Anchor2)
 
 			var (
 				refHash        [32 + binary.MaxVarintLen64]byte
@@ -215,13 +216,13 @@ func get(args []string) {
 
 			g, err := clearHashes.Get(bchErr.Index)
 			if err != nil {
-				// xxx
+				log.Fatalf("getting hash %d from %s: %s", bchErr.Index, clearHashes.filename, err)
 			}
 			copy(refHash[m:], g)
 
 			g, err = cipherChunks.Get(bchErr.Index)
 			if err != nil {
-				// xxx
+				log.Fatalf("getting cipher chunk %d from %s: %s", bchErr.Index, cipherChunks.filename, err)
 			}
 			copy(refCipherChunk[m:], g)
 
@@ -232,14 +233,14 @@ func get(args []string) {
 			)
 			nchunks, err := cipherChunks.Len()
 			if err != nil {
-				// xxx
+				log.Fatalf("getting length of cipher chunk store %s: %s", cipherChunks.filename, err)
 			}
 			for index := uint64(0); index < uint64(nchunks); index++ {
 				var chunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
 				m := binary.PutUvarint(chunk[:], index)
 				ci, err := cipherChunks.Get(index)
 				if err != nil {
-					// xxx
+					log.Fatalf("getting cipher chunk %d from %s: %s", bchErr.Index, cipherChunks.filename, err)
 				}
 				copy(chunk[m:], ci)
 				n := len(ci)
@@ -259,48 +260,50 @@ func get(args []string) {
 
 			prog, err := tedd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
 			if err != nil {
-				// xxx
+				log.Fatalf("constructing refund-claiming transaction: %s", err)
 			}
 
 			vm, err := txvm.Validate(prog, 3, math.MaxInt64)
 			if err != nil {
-				// xxx
+				log.Fatalf("calculating runlimit for refund-claiming transaction: %s", err)
 			}
 
 			err = submit(prog, 3, math.MaxInt64-vm.Runlimit())
 			if err != nil {
-				// xxx
+				// TODO: retry
+				log.Fatalf("submitting refund-claiming transaction: %s", err)
 			}
 			return
 		}
 		if err != nil {
-			// xxx
+			log.Fatalf("decrypting content: %s", err)
 		}
 		log.Print("complete")
 	})
 	o.enqueue(revealDeadline, func() {
 		log.Print("reveal deadline has arrived, transfer invalid")
-		// xxx remove encrypted file
 		cancel()
 	})
 
 	req, err := http.NewRequest("POST", proposePaymentURL, bytes.NewReader(prog))
 	if err != nil {
-		// xxx
+		log.Fatalf("constructing payment proposal: %s", err)
 	}
 	req = req.WithContext(ctx)
 
 	req.Header.Set("X-Tedd-Transfer-Id", transferID)
 
 	var client http.Client
-	resp, err = client.Do(req)
+	resp, err = client.Do(req) // from this point, funds are committed - perhaps even in case of error
 	if err != nil {
-		// xxx
+		log.Printf("sending payment proposal: %s", err)
+		log.Print("WARNING: funds may be committed; awaiting outcome")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		// xxx
+		log.Printf("sending payment proposal: unexpected status %d", resp.StatusCode)
+		log.Print("WARNING: funds may be committed; awaiting outcome")
 	}
 
 	<-ctx.Done()
