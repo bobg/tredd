@@ -275,10 +275,12 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
-	var (
-		transferIDStr      = req.FormValue("transferid")
-		paymentProposalStr = req.FormValue("paymentproposal")
-	)
+	transferIDStr := req.Header.Get("X-Tedd-Transfer-Id")
+
+	paymentProposal, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		// xxx
+	}
 
 	transferID, err := hex.DecodeString(transferIDStr)
 	if err != nil {
@@ -289,12 +291,6 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	rec, err := s.getRecord(transferID)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "finding transfer record: %s", err)
-		return
-	}
-
-	paymentProposal, err := hex.DecodeString(paymentProposalStr)
-	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "decoding payment proposal: %s", err)
 		return
 	}
 

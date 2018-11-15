@@ -123,7 +123,7 @@ func get(args []string) {
 	}
 
 	var (
-		transferID       = resp.Header.Get("X-Tedd-Transfer-Id") // xxx need to get this into the propose-payment tx below
+		transferID       = resp.Header.Get("X-Tedd-Transfer-Id")
 		clearHashesFile  = path.Join(*dir, fmt.Sprintf("hashes-%s", transferID))
 		cipherChunksFile = path.Join(*dir, fmt.Sprintf("chunks-%s", transferID))
 	)
@@ -284,10 +284,20 @@ func get(args []string) {
 		cancel()
 	})
 
-	resp, err = http.Post(proposePaymentURL, "application/octet-stream", bytes.NewReader(prog))
+	req, err := http.NewRequest("POST", proposePaymentURL, bytes.NewReader(prog))
 	if err != nil {
 		// xxx
 	}
+	req = req.WithContext(ctx)
+
+	req.Header.Set("X-Tedd-Transfer-Id", transferID)
+
+	var client http.Client
+	resp, err = client.Do(req)
+	if err != nil {
+		// xxx
+	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
 		// xxx
