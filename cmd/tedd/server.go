@@ -236,7 +236,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	log.Printf("new transfer %x, clearRoot %x, payment %d/%x, deadlines %s/%s, key %x", transferID, clearRoot, amount, assetID, revealDeadline, refundDeadline, key[:])
+	log.Printf("new transfer %x, clearRoot %x, payment %d/%x, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, assetID, revealDeadline, refundDeadline, key[:])
 
 	w.Header().Set("X-Tedd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
