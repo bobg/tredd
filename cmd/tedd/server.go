@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -31,7 +32,7 @@ func serve(args []string) {
 	fs := flag.NewFlagSet("", flag.PanicOnError)
 
 	var (
-		listen  = fs.String("listen", "", "listen address")
+		addr    = fs.String("addr", "localhost:20544", "server listen address")
 		dir     = fs.String("dir", ".", "root of content tree")
 		dbFile  = fs.String("db", "", "file containing server-state db")
 		prvFile = fs.String("prv", "", "file containing server private key")
@@ -108,10 +109,16 @@ func serve(args []string) {
 	log.Print("starting blockchain observer")
 	go s.o.run(ctx)
 
-	log.Printf("listening on %s", *listen)
+	listener, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("listening on %s", listener.Addr())
+
 	http.HandleFunc("/request", s.serve)
 	http.HandleFunc("/propose-payment", s.revealKey)
-	http.ListenAndServe(*listen, nil)
+	http.Serve(listener, nil)
 }
 
 type server struct {
