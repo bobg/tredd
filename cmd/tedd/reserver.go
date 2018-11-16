@@ -28,11 +28,11 @@ func processBlock(dbtx *bbolt.Tx, b *bc.Block, pubkey ed25519.PublicKey) error {
 			}
 			asset := utxos.Bucket(inp.Value.AssetID.Bytes())
 			if asset == nil {
-				return errors.Wrapf(err, "asset bucket %x not found", inp.Value.AssetID.Bytes())
+				continue
 			}
 			err = asset.DeleteBucket(inp.OutputID.Bytes())
 			if err != nil {
-				return errors.Wrapf(err, "deleting bucket for utxo %x", inp.OutputID.Bytes())
+				continue
 			}
 		}
 		for _, out := range txr.Outputs {
@@ -123,6 +123,9 @@ func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now
 			res.utxos = append(res.utxos, u)
 			res.outputIDs = append(res.outputIDs, outputID)
 			amount -= utxoAmount
+		}
+		if amount > 0 {
+			return errInsufficientFunds
 		}
 		res.change = -amount
 		for _, o := range res.outputIDs {

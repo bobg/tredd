@@ -41,7 +41,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		m := binary.PutUvarint(chunkWithPrefix[:], index)
 		copy(chunkWithPrefix[m:], chunk)
 
-		merkle.LeafHash(hasher, gotClearHash[:0], chunkWithPrefix[:m+len(chunk)])
+		merkle.LeafHash(hasher, gotClearHash[:0], chunkWithPrefix[m:m+len(chunk)])
 		if !bytes.Equal(gotClearHash[:], wantClearHash) {
 			return BadClearHashError{Index: index}
 		}

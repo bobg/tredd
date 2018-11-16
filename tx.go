@@ -439,9 +439,13 @@ func ParseLog(prog []byte) *ParseResult {
 			AssetID:        vm.Log[i+6][2].(txvm.Bytes),
 			Anchor1:        vm.Log[i+7][2].(txvm.Bytes),
 		}
-		for j := i + 1; j < len(vm.Log); j++ {
+		for j := i + 8; j < len(vm.Log); j++ {
 			item := vm.Log[j]
 			if len(item) != 3 {
+				continue
+			}
+			code, ok := item[0].(txvm.Bytes)
+			if !ok {
 				continue
 			}
 			if !bytes.Equal(code, []byte{'L'}) {
@@ -450,7 +454,7 @@ func ParseLog(prog []byte) *ParseResult {
 			if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
 				continue
 			}
-			res.Anchor1 = vm.Log[j][2].(txvm.Bytes)
+			res.Anchor2 = vm.Log[j][2].(txvm.Bytes)
 			res.Key = vm.Log[j+1][2].(txvm.Bytes)
 			res.Seller = ed25519.PublicKey(vm.Log[j+2][2].(txvm.Bytes))
 			res.OutputID = vm.Log[j+3][2].(txvm.Bytes)

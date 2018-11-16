@@ -100,6 +100,32 @@ func TestTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	parsed := ParseLog(partial)
+	if parsed == nil {
+		t.Fatal("cannot parse log of payment proposal")
+	}
+	if parsed.Amount != 10 {
+		t.Fatalf("parsed amount %d, want 10", parsed.Amount)
+	}
+	if !bytes.Equal(parsed.AssetID, assetID.Bytes()) {
+		t.Fatalf("parsed asset ID %x, want %x", parsed.AssetID, assetID.Bytes())
+	}
+	if parsed.RevealDeadline.UTC() != revealDeadline.UTC() {
+		t.Fatalf("parsed reveal deadline %s, want %s", parsed.RevealDeadline, revealDeadline)
+	}
+	if parsed.RefundDeadline.UTC() != refundDeadline.UTC() {
+		t.Fatalf("parsed refund deadline %s, want %s", parsed.RefundDeadline, refundDeadline)
+	}
+	if !bytes.Equal(parsed.Buyer, buyer) {
+		t.Fatalf("parsed buyer %x, want %x", parsed.Buyer, buyer)
+	}
+	if !bytes.Equal(parsed.ClearRoot, clearRoot[:]) {
+		t.Fatalf("parsed clear root %x, want %x", parsed.ClearRoot, clearRoot[:])
+	}
+	if !bytes.Equal(parsed.CipherRoot, cipherRoot[:]) {
+		t.Fatalf("parsed cipher root %x, want %x", parsed.CipherRoot, cipherRoot[:])
+	}
+
 	reserver = &testReserver{
 		utxos: []UTXO{
 			&testUTXO{
@@ -122,6 +148,40 @@ func TestTx(t *testing.T) {
 	complete, err := RevealKey(ctx, partial, seller, key, 10, assetID, reserver, signer, clearRoot, cipherRoot, now, revealDeadline, refundDeadline)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	t.Logf("complete tx: %x", complete)
+
+	parsed = ParseLog(complete)
+	if parsed == nil {
+		t.Fatal("cannot parse log of payment proposal")
+	}
+	if parsed.Amount != 10 {
+		t.Fatalf("parsed amount %d, want 10", parsed.Amount)
+	}
+	if !bytes.Equal(parsed.AssetID, assetID.Bytes()) {
+		t.Fatalf("parsed asset ID %x, want %x", parsed.AssetID, assetID.Bytes())
+	}
+	if parsed.RevealDeadline.UTC() != revealDeadline.UTC() {
+		t.Fatalf("parsed reveal deadline %s, want %s", parsed.RevealDeadline, revealDeadline)
+	}
+	if parsed.RefundDeadline.UTC() != refundDeadline.UTC() {
+		t.Fatalf("parsed refund deadline %s, want %s", parsed.RefundDeadline, refundDeadline)
+	}
+	if !bytes.Equal(parsed.Buyer, buyer) {
+		t.Fatalf("parsed buyer %x, want %x", parsed.Buyer, buyer)
+	}
+	if !bytes.Equal(parsed.ClearRoot, clearRoot[:]) {
+		t.Fatalf("parsed clear root %x, want %x", parsed.ClearRoot, clearRoot[:])
+	}
+	if !bytes.Equal(parsed.CipherRoot, cipherRoot[:]) {
+		t.Fatalf("parsed cipher root %x, want %x", parsed.CipherRoot, cipherRoot[:])
+	}
+	if !bytes.Equal(parsed.Key, key[:]) {
+		t.Fatalf("parsed key %x, want %x", parsed.Key, key[:])
+	}
+	if !bytes.Equal(parsed.Seller, seller) {
+		t.Fatalf("parsed seller %x, want %x", parsed.Seller, seller)
 	}
 
 	vm, err := txvm.Validate(complete, 3, math.MaxInt64, txvm.Trace(os.Stdout))

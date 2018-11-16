@@ -155,10 +155,7 @@ func get(args []string) {
 	var cipherRootBuf [32]byte
 	copy(cipherRootBuf[:], cipherRoot)
 
-	now, err := o.now()
-	if err != nil {
-		log.Fatal(err)
-	}
+	now := time.Now()
 
 	prog, err := tedd.ProposePayment(ctx, buyer, *amount, assetID, clearRoot, cipherRootBuf, now, revealDeadline, refundDeadline, o.r, signer)
 	if err != nil {
@@ -174,8 +171,6 @@ func get(args []string) {
 	submit := submitter(*bcURL + "/submit")
 
 	o.setcb(func(tx *bc.Tx) {
-		defer cancel()
-
 		parsed := tedd.ParseLog(tx.Program)
 		if parsed == nil {
 			return
@@ -183,6 +178,8 @@ func get(args []string) {
 		if !bytes.Equal(parsed.Anchor1, anchor1) {
 			return
 		}
+
+		defer cancel()
 
 		log.Printf("payment proposal accepted, key is %x; now decrypting", parsed.Key)
 
@@ -306,7 +303,9 @@ func get(args []string) {
 		log.Printf("sending payment proposal: %s", err)
 		log.Print("WARNING: funds may be committed; awaiting outcome")
 	}
-	defer resp.Body.Close()
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	if resp.StatusCode != http.StatusNoContent {
 		log.Printf("sending payment proposal: unexpected status %d", resp.StatusCode)

@@ -321,11 +321,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	copy(cipherRoot[:], rec.CipherRoot)
 	copy(key[:], rec.Key)
 
-	now, err := s.o.now()
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "getting blockchain time: %s", err)
-		return
-	}
+	now := time.Now()
 
 	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
@@ -384,7 +380,7 @@ func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
 		if bu == nil {
 			return fmt.Errorf("no record bucket %x", transferID)
 		}
-		copy(rec.Key[:], bu.Get([]byte("key")))
+		rec.Key = bu.Get([]byte("key"))
 		rec.ClearRoot = bu.Get([]byte("clearRoot"))
 		rec.CipherRoot = bu.Get([]byte("cipherRoot"))
 		rec.AssetID = bu.Get([]byte("assetID"))
