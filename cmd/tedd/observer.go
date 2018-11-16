@@ -58,6 +58,8 @@ func (o *observer) run(ctx context.Context) {
 			log.Fatalf("getting blockchain height: %s", err)
 		}
 
+		log.Printf("requesting block at height %d", height+1)
+
 		getBlockURL := fmt.Sprintf("%s?height=%d", o.url, height+1)
 		req, err := http.NewRequest("GET", getBlockURL, nil)
 		if err != nil {
@@ -129,6 +131,7 @@ func (o *observer) run(ctx context.Context) {
 			}
 
 			now := bc.FromMillis(b.TimestampMs)
+			log.Printf("block time %s", now)
 
 			o.mu.Lock()
 			for len(o.queue) > 0 && !o.queue[0].t.After(now) {

@@ -98,14 +98,17 @@ func serve(args []string) {
 		log.Fatal(err)
 	}
 	for _, transferID := range transferIDs {
+		log.Printf("queueing claim-payment callback for transfer %x", transferID)
 		err = s.queueClaimPayment(transferID)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 
+	log.Print("starting blockchain observer")
 	go s.o.run(ctx)
 
+	log.Printf("listening on %s", *listen)
 	http.HandleFunc("/request", s.serve)
 	http.HandleFunc("/propose-payment", s.revealKey)
 	http.ListenAndServe(*listen, nil)
@@ -233,6 +236,8 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	log.Printf("new transfer %x, clearRoot %x, payment %d/%x, deadlines %s/%s, key %x", transferID, clearRoot, amount, assetID, revealDeadline, refundDeadline, key[:])
+
 	w.Header().Set("X-Tedd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
 
@@ -345,6 +350,8 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	}
 
 	s.queueClaimPaymentHelper(rec)
+
+	log.Printf("transfer %x: revealing key", transferID)
 
 	err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
 	if err != nil {

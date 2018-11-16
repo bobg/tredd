@@ -102,6 +102,7 @@ func get(args []string) {
 	}
 	defer db.Close()
 
+	log.Print("launching blockchain observer")
 	o := newObserver(db, buyer, *bcURL+"/get")
 	go o.run(ctx)
 
@@ -112,6 +113,7 @@ func get(args []string) {
 	vals.Add("revealdeadline", strconv.FormatInt(int64(bc.Millis(revealDeadline)), 10)) // xxx range check
 	vals.Add("refunddeadline", strconv.FormatInt(int64(bc.Millis(refundDeadline)), 10)) // xxx range check
 
+	log.Print("requesting content")
 	resp, err := http.PostForm(requestURL, vals)
 	if err != nil {
 		log.Fatal(err)
@@ -140,7 +142,8 @@ func get(args []string) {
 	}
 	defer os.Remove(cipherChunksFile) // TODO: keep this around if needed to recover from errors
 
-	cipherRoot, err := tedd.Get(&bytereader{r: resp.Body}, clearRoot, clearHashes, cipherChunks)
+	log.Print("storing cipher chunks and checking clear hashes")
+	cipherRoot, err := tedd.Get(resp.Body, clearRoot, clearHashes, cipherChunks)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -180,6 +183,9 @@ func get(args []string) {
 		if !bytes.Equal(parsed.Anchor1, anchor1) {
 			return
 		}
+
+		log.Printf("payment proposal accepted, key is %x; now decrypting", parsed.Key)
+
 		// Payment has been accepted.
 		var key [32]byte
 		copy(key[:], parsed.Key)
@@ -193,7 +199,7 @@ func get(args []string) {
 
 		err = tedd.Decrypt(out, clearHashes, cipherChunks, key)
 		if bchErr, ok := err.(tedd.BadClearHashError); ok {
-			log.Print("payment accepted but decryption failed, now claiming refund")
+			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
 
 			redeem := &tedd.Redeem{
 				RefundDeadline: refundDeadline,
@@ -285,6 +291,7 @@ func get(args []string) {
 		cancel()
 	})
 
+	log.Print("proposing payment")
 	req, err := http.NewRequest("POST", proposePaymentURL, bytes.NewReader(prog))
 	if err != nil {
 		log.Fatalf("constructing payment proposal: %s", err)
@@ -306,25 +313,6 @@ func get(args []string) {
 		log.Print("WARNING: funds may be committed; awaiting outcome")
 	}
 
+	log.Print("awaiting key or reveal deadline")
 	<-ctx.Done()
-}
-
-type bytereader struct {
-	r io.Reader
-}
-
-func (b *bytereader) ReadByte() (byte, error) {
-	var buf [1]byte
-	n, err := b.r.Read(buf[:])
-	if err != nil {
-		return 0, err
-	}
-	if n != 1 {
-		return 0, io.ErrUnexpectedEOF
-	}
-	return buf[0], nil
-}
-
-func (b *bytereader) Read(buf []byte) (int, error) {
-	return b.r.Read(buf)
 }
