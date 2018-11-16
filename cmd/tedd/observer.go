@@ -163,9 +163,9 @@ func (o *observer) setcb(cb func(*bc.Tx)) {
 func (o *observer) height() (uint64, error) {
 	var height uint64
 	err := o.db.View(func(tx *bbolt.Tx) error {
-		root, err := tx.CreateBucketIfNotExists([]byte("root"))
-		if err != nil {
-			return errors.Wrap(err, "getting/creating root bucket")
+		root := tx.Bucket([]byte("root"))
+		if root == nil {
+			return nil
 		}
 		heightBits := root.Get([]byte("height"))
 		if len(heightBits) == 0 {

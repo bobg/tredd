@@ -28,7 +28,7 @@ func newFileChunkStore(filename string, chunksize int64) (*fileChunkStore, error
 }
 
 func (s *fileChunkStore) Add(bits []byte) error {
-	f, err := os.OpenFile(s.filename, os.O_APPEND|os.O_CREATE, 0600)
+	f, err := os.OpenFile(s.filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		return err
 	}

@@ -110,6 +110,6 @@ func BenchmarkCrypt(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		crypt(key, chunk, 0)
+		Crypt(key, chunk, 0)
 	}
 }

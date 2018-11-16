@@ -101,7 +101,7 @@ func TestTxVMDecrypt(t *testing.T) {
 
 	copy(cipher[:], clear[:])
 
-	crypt(key, cipher[:], 0)
+	Crypt(key, cipher[:], 0)
 	if bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("encrypting did nothing?!")
 	}

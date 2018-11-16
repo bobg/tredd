@@ -17,15 +17,14 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	var (
 		cipherMT            = merkle.NewTree(sha256.New())
 		hasher              = sha256.New()
-		chunkWithPrefix     [ChunkSize + binary.MaxVarintLen64]byte
+		chunk               [ChunkSize]byte
 		clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
 	)
 
 	for index := uint64(0); ; index++ {
-		m := binary.PutUvarint(chunkWithPrefix[:], index)
-		binary.PutUvarint(clearHashWithPrefix[:], index)
+		m := binary.PutUvarint(clearHashWithPrefix[:], index)
 
-		n, err := io.ReadFull(r, chunkWithPrefix[m:m+ChunkSize])
+		n, err := io.ReadFull(r, chunk[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
@@ -34,19 +33,19 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "reading clear chunk %d", index)
 		}
 
-		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunkWithPrefix[:m+n])
+		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunk[:n])
 
 		_, err = w.Write(clearHashWithPrefix[m : m+32])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
 
-		crypt(key, chunkWithPrefix[m:m+n], index) // n.b. overwrites the contents of chunk
-		_, err = w.Write(chunkWithPrefix[m : m+n])
+		Crypt(key, chunk[:n], index) // n.b. overwrites the contents of chunk
+		_, err = w.Write(chunk[:n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
 		}
-		cipherMT.Add(chunkWithPrefix[:m+n])
+		cipherMT.Add(chunk[:n])
 	}
 
 	return cipherMT.Root(), nil

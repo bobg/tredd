@@ -34,11 +34,11 @@ func get(args []string) {
 	fs := flag.NewFlagSet("", flag.PanicOnError)
 
 	var (
-		clearRootHex         = flag.String("hash", "", "clear-chunk Merkle root hash of requested file")
-		amount               = flag.Int64("amount", 0, "amount of proposed payment")
-		assetIDHex           = flag.String("asset", "", "asset ID of proposed payment")
-		revealDeadlineDurStr = flag.String("reveal", "", "time until reveal deadline, in time.ParseDuration format")
-		refundDeadlineDurStr = flag.String("refund", "", "time from reveal deadline until refund deadline")
+		clearRootHex         = fs.String("hash", "", "clear-chunk Merkle root hash of requested file")
+		amount               = fs.Int64("amount", 0, "amount of proposed payment")
+		assetIDHex           = fs.String("asset", "", "asset ID of proposed payment")
+		revealDeadlineDurStr = fs.String("reveal", "", "time until reveal deadline, in time.ParseDuration format")
+		refundDeadlineDurStr = fs.String("refund", "", "time from reveal deadline until refund deadline")
 		dbFile               = fs.String("db", "", "file containing client-state db")
 		prvFile              = fs.String("prv", "", "file containing client private key")
 		serverURL            = fs.String("server", "", "base URL of tedd server")
@@ -106,7 +106,7 @@ func get(args []string) {
 	o := newObserver(db, buyer, *bcURL+"/get")
 	go o.run(ctx)
 
-	var vals url.Values
+	vals := url.Values{}
 	vals.Add("clearroot", *clearRootHex)
 	vals.Add("amount", strconv.FormatInt(*amount, 10))
 	vals.Add("assetid", *assetIDHex)

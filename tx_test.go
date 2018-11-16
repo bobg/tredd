@@ -194,7 +194,7 @@ func TestTx(t *testing.T) {
 			clearTree = merkle.NewProofTree(sha256.New(), h[:m+32])
 		}
 		clearTree.Add(h[:m+32])
-		crypt(key, chunk[m:m+n], index)
+		Crypt(key, chunk[m:m+n], index)
 		if index == 0 {
 			refchunk = make([]byte, n)
 			copy(refchunk, chunk[m:m+n])

@@ -36,7 +36,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		if err != nil {
 			return errors.Wrapf(err, "getting cipher chunk %d", index)
 		}
-		crypt(key, chunk, index)
+		Crypt(key, chunk, index)
 
 		m := binary.PutUvarint(chunkWithPrefix[:], index)
 		copy(chunkWithPrefix[m:], chunk)

@@ -25,7 +25,7 @@ type ChunkStore interface {
 
 var errMissingChunk = errors.New("missing chunk")
 
-func crypt(key [32]byte, chunk []byte, index uint64) {
+func Crypt(key [32]byte, chunk []byte, index uint64) {
 	var (
 		hasher = sha256.New()
 		subkey [32]byte

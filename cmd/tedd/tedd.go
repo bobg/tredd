@@ -25,6 +25,8 @@ func main() {
 	switch os.Args[1] {
 	case "add":
 		add(os.Args[2:])
+	case "decrypt":
+		decrypt(os.Args[2:])
 	case "get":
 		get(os.Args[2:])
 	case "serve":
@@ -60,12 +62,14 @@ func addFile(file, dir, contentType string) error {
 	}
 	defer f.Close()
 
-	tree := merkle.NewTree(sha256.New())
+	var (
+		tree   = merkle.NewTree(sha256.New())
+		hasher = sha256.New()
+		chunk  [tedd.ChunkSize]byte
+	)
 
-	var buf [binary.MaxVarintLen64 + tedd.ChunkSize]byte
-	for i := uint64(0); ; i++ {
-		m := binary.PutUvarint(buf[:], i)
-		n, err := io.ReadFull(f, buf[m:m+tedd.ChunkSize])
+	for index := uint64(0); ; index++ {
+		n, err := io.ReadFull(f, chunk[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
@@ -73,10 +77,14 @@ func addFile(file, dir, contentType string) error {
 		if err != nil && err != io.ErrUnexpectedEOF {
 			return errors.Wrapf(err, "reading %s", file)
 		}
-		tree.Add(buf[:m+n])
-		if i == 0 && contentType == "" {
-			contentType = http.DetectContentType(buf[m : m+n])
+		if index == 0 && contentType == "" {
+			contentType = http.DetectContentType(chunk[:n])
 		}
+
+		var clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
+		m := binary.PutUvarint(clearHashWithPrefix[:], index)
+		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunk[:n])
+		tree.Add(clearHashWithPrefix[:m+32])
 	}
 	clearHash := tree.Root()
 
@@ -117,4 +125,31 @@ func addFile(file, dir, contentType string) error {
 func clearHashPath(root string, clearHash []byte) (dir, filename string) {
 	dir = path.Join(root, fmt.Sprintf("%x/%x", clearHash[0:1], clearHash[1:2]))
 	return dir, hex.EncodeToString(clearHash)
+}
+
+func decrypt(args []string) {
+	fs := flag.NewFlagSet("", flag.PanicOnError)
+	keyHex := fs.String("key", "", "decryption key (hex)")
+	err := fs.Parse(args)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var key [32]byte
+	_, err = hex.Decode(key[:], []byte(*keyHex))
+	if err != nil {
+		log.Fatal(err)
+	}
+	for index := uint64(0); ; index++ {
+		var buf [tedd.ChunkSize]byte
+		n, err := io.ReadFull(os.Stdin, buf[:])
+		if err == io.EOF {
+			// "The error is EOF only if no bytes were read."
+			break
+		}
+		if err != nil && err != io.ErrUnexpectedEOF {
+			log.Fatal(err)
+		}
+		tedd.Crypt(key, buf[:n], index)
+		os.Stdout.Write(buf[:n])
+	}
 }
