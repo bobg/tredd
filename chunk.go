@@ -7,11 +7,19 @@ import (
 	"github.com/chain/txvm/protocol/txvm"
 )
 
+// ChunkSize is the size of a chunk of Tedd data.
 const ChunkSize = 8192
 
+// ChunkStore stores and retrieves data in chunks.
+// The chunk size need not be ChunkSize.
 type ChunkStore interface {
+	// Add adds a chunk to the end of the ChunkStore.
 	Add([]byte) error
+
+	// Get gets the chunk with the given index (0-based).
 	Get(uint64) ([]byte, error)
+
+	// Len tells the number of chunks in the store.
 	Len() (int64, error)
 }
 

@@ -9,9 +9,10 @@ import (
 	"github.com/chain/txvm/errors"
 )
 
-// r is the unchunked cleartext of the data being served,
-// w is where to serve it to
-// TODO: cleartext chunks and their hashes should be precomputed
+// Serve produces a stream of interleaved <clearhash><cipherchunk> pairs from the content in r.
+// It writes the stream to w, encrypting the chunks by xoring with hashes derived from key.
+// The return value is the Merkle root hash of the cipher chunks, each prepended with its chunk index.
+// TODO: Cleartext chunks and their hashes can be precomputed and supplied as ChunkStores.
 func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	var (
 		cipherMT            = merkle.NewTree(sha256.New())

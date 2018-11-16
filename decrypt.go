@@ -11,6 +11,10 @@ import (
 	"github.com/chain/txvm/errors"
 )
 
+// Decrypt decrypts the chunks in cipherChunks by xoring with hashes derived from key.
+// It writes the concatenated cleartext chunks to w.
+// Along the way, it compares each cleartext chunk's hash to the corresponding value in clearHashes.
+// If it finds a mismatch, it returns a BadClearHashError.
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
 	var (
 		hasher          = sha256.New()
@@ -51,7 +55,9 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 	return nil
 }
 
+// BadClearHashError gives the index of a cleartext chunk whose hash doesn't have the expected value.
 type BadClearHashError struct {
+	// Index is the index of the chunk and of the hash within their respective ChunkStores.
 	Index uint64
 }
 

@@ -20,9 +20,10 @@ import (
 	"github.com/chain/txvm/protocol/txvm/txvmutil"
 )
 
+// Signer is the type of a function that produces a signature of a given message.
 type Signer func([]byte) ([]byte, error)
 
-// ProposePayment constructs a partial transaction in which the buyer commits funds to the tedd contract.
+// ProposePayment constructs a partial transaction in which the buyer commits funds to the Tedd contract.
 func ProposePayment(
 	ctx context.Context,
 	buyer ed25519.PublicKey,
@@ -184,7 +185,7 @@ func ProposePayment(
 }
 
 // RevealKey completes the partial transaction in paymentProposal (which came from ProposePayment).
-// The tedd contract is on the con stack. The arg stack is empty.
+// The Tedd contract is on the contract stack. The arg stack is empty.
 func RevealKey(
 	ctx context.Context,
 	paymentProposal []byte,
@@ -297,12 +298,18 @@ func RevealKey(
 	return append(tx1, tx2...), nil
 }
 
+// Redeem holds the values needed to redeem a Tedd contract
+// (whether by the seller claiming payment or the buyer claiming a refund).
 type Redeem struct {
-	RefundDeadline        time.Time
-	Buyer, Seller         ed25519.PublicKey
-	Amount                int64 // sum of buyer payment + collateral
-	AssetID               bc.Hash
-	Anchor2               [32]byte // anchor of payment+collateral value
+	RefundDeadline time.Time
+	Buyer, Seller  ed25519.PublicKey
+
+	// Amount is the sum of the payment and the collateral (i.e., the buyer's payment times 2).
+	Amount  int64
+	AssetID bc.Hash
+
+	// Anchor2 is the anchor of the Value tuple holding the payment+collateral.
+	Anchor2               [32]byte
 	CipherRoot, ClearRoot [32]byte
 	Key                   [32]byte
 }
@@ -327,6 +334,8 @@ func redeem(r *Redeem) *bytes.Buffer {
 	return buf
 }
 
+// ClaimPayment constructs a seller-claims-payment transaction,
+// rehydrating and invoking a Tedd contract from the utxo state (identified by the information in r).
 func ClaimPayment(r *Redeem) ([]byte, error) {
 	buf := redeem(r)
 	fmt.Fprintln(buf, "0 put call")
@@ -334,6 +343,9 @@ func ClaimPayment(r *Redeem) ([]byte, error) {
 	return asm.Assemble(buf.String())
 }
 
+// ClaimRefund constructs a buyer-claims-refund transaction,
+// rehydrating a Tedd contract from the utxo state (identified by the information in r)
+// and calling it with the necessary proofs and other information.
 func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, cipherProof, clearProof merkle.Proof) ([]byte, error) {
 	var prefix [binary.MaxVarintLen64]byte
 	m := binary.PutUvarint(prefix[:], uint64(index))
@@ -366,10 +378,20 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 	fmt.Fprintln(w, "}")
 }
 
+// ParseResult holds the values parsed from the log of a transaction that invokes the propose-payment phase of a Tedd contract.
+// If the transaction is complete
+// (i.e., the seller has added the "reveal-key" call),
+// all of the fields will be filled in.
+// If the transaction is partial, some fields will be uninitialized.
 type ParseResult struct {
-	Amount         int64
-	AssetID        []byte
-	Anchor1        []byte
+	// Amount is the amount of the buyer's payment (not including the seller's collateral).
+	Amount  int64
+	AssetID []byte
+
+	// Anchor1 is the anchor in the Value tuple of the buyer's payment.
+	Anchor1 []byte
+
+	// Anchor2 is the anchor in the Value tuple of the buyer's payment after merging with the seller's collateral.
 	Anchor2        []byte
 	ClearRoot      []byte
 	CipherRoot     []byte
@@ -378,9 +400,15 @@ type ParseResult struct {
 	Buyer          ed25519.PublicKey
 	Seller         ed25519.PublicKey
 	Key            []byte
-	OutputID       []byte
+
+	// OutputID is the id of the Tedd contract UTXO while awaiting redemption.
+	OutputID []byte
 }
 
+// ParseLog parses the log of a (possibly partial) transaction program.
+// If the log shows a call to an instance of the Tedd contract,
+// ParseLog returns a ParseResult containing information extracted from the log.
+// Otherwise it returns nil.
 func ParseLog(prog []byte) *ParseResult {
 	vm, err := txvm.Validate(prog, 3, math.MaxInt64, txvm.StopAfterFinalize)
 	if vm == nil || err != nil {

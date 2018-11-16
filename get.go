@@ -16,12 +16,13 @@ var (
 	errPartial      = errors.New("partial non-final chunk")
 )
 
-type Reader interface {
-	io.Reader
-	io.ByteReader
-}
-
-func Get(r Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
+// Get parses a stream of interleaved <clearhash><cipherchunk> pairs,
+// placing them in their respective ChunkStores.
+// Along the way it compares the clear hashes' Merkle root hash to the expected value in clearRoot.
+// If it finds a mismatch it returns errBadClearRoot.
+// If there is no error, the Merkle root hash of the cipher chunks is returned.
+// Both Merkle root hashes are computed from values prepended with the chunk index number.
+func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
 		wasPartial            bool // only the final chunk may have a partial length.
 		clearMT               = merkle.NewTree(sha256.New())
