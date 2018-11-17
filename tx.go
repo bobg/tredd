@@ -1,4 +1,4 @@
-package tedd
+package tredd
 
 import (
 	"bytes"
@@ -23,7 +23,7 @@ import (
 // Signer is the type of a function that produces a signature of a given message.
 type Signer func([]byte) ([]byte, error)
 
-// ProposePayment constructs a partial transaction in which the buyer commits funds to the Tedd contract.
+// ProposePayment constructs a partial transaction in which the buyer commits funds to the Tredd contract.
 func ProposePayment(
 	ctx context.Context,
 	buyer ed25519.PublicKey,
@@ -39,19 +39,19 @@ func ProposePayment(
 		return nil, errors.Wrap(err, "reserving utxos")
 	}
 
-	// Where the TEDD contract log entries start.
+	// Where the TREDD contract log entries start.
 	utxos := reservation.UTXOs()
-	teddLogPos := 2 * int64(len(utxos)) // one 'I' and one 'L' log entry per standard input
+	treddLogPos := 2 * int64(len(utxos)) // one 'I' and one 'L' log entry per standard input
 
-	// With the knowledge of the input args and the TEDD log position,
+	// With the knowledge of the input args and the TREDD log position,
 	// construct the signature program for spending these utxos.
 	buf := new(bytes.Buffer)
 
 	fmt.Fprint(buf, "[")
 
 	if reservation.Change() > 0 {
-		teddLogPos += 3 // one 'O' and two 'L' log entries
-		fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos-1)
+		treddLogPos += 3 // one 'O' and two 'L' log entries
+		fmt.Fprintf(buf, "%d peeklog untuple\n", treddLogPos-1)
 
 		// Have to make sure this log entry is {'O', seed, outputID}.
 		// Computing the right outputID means simulating the merges and the split below to get the change value's anchor.
@@ -83,34 +83,34 @@ func ProposePayment(
 		fmt.Fprintf(buf, "'O' eq verify\n")
 	}
 
-	fmt.Fprintf(buf, "%d peeklog untuple\n", teddLogPos)
+	fmt.Fprintf(buf, "%d peeklog untuple\n", treddLogPos)
 	fmt.Fprintf(buf, "4 eq verify\n")
 	fmt.Fprintf(buf, "3 roll 'R' eq verify\n")
-	fmt.Fprintf(buf, "2 roll x'%x' eq verify\n", teddContractSeed[:])
+	fmt.Fprintf(buf, "2 roll x'%x' eq verify\n", treddContractSeed[:])
 	fmt.Fprintf(buf, "%d eq verify\n", bc.Millis(revealDeadline))
 	fmt.Fprintf(buf, "0 eq verify\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+1)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+1)
 	fmt.Fprintf(buf, "%d eq verify\n", bc.Millis(refundDeadline))
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+2)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+2)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", buyer)
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+3)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+3)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", cipherRoot[:])
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+4)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+4)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", clearRoot[:])
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+5)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+5)
 	fmt.Fprintf(buf, "%d eq verify\n", amount)
 	fmt.Fprintf(buf, "drop drop\n")
 
-	fmt.Fprintf(buf, "%d peeklog untuple drop\n", teddLogPos+6)
+	fmt.Fprintf(buf, "%d peeklog untuple drop\n", treddLogPos+6)
 	fmt.Fprintf(buf, "x'%x' eq verify\n", assetID.Bytes())
 	fmt.Fprintf(buf, "drop drop\n")
 
@@ -158,7 +158,7 @@ func ProposePayment(
 		b.PushdataBytes(standard.PayToMultisigProg2).Op(op.Contract).Op(op.Call)
 	}
 
-	b.PushdataBytes(teddContractProg).Op(op.Contract)
+	b.PushdataBytes(treddContractProg).Op(op.Contract)
 	b.PushdataInt64(1).Op(op.Roll)
 
 	b.Op(op.Put) // payment, which was already on the contract stack
@@ -171,11 +171,11 @@ func ProposePayment(
 	b.Op(op.Call)
 
 	// con stack is now empty
-	// arg stack is sigprog sigprog ... teddcontract (all deferred)
+	// arg stack is sigprog sigprog ... treddcontract (all deferred)
 
-	b.Op(op.Get) // move tedd contract back to con stack
+	b.Op(op.Get) // move tredd contract back to con stack
 
-	// Now that the first phase of the tedd contract has run and begun to populate the tx log,
+	// Now that the first phase of the tredd contract has run and begun to populate the tx log,
 	// the sig progs, which check the log, can run.
 	for i := 0; i < len(reservation.UTXOs()); i++ {
 		b.Op(op.Get).Op(op.Call)
@@ -185,7 +185,7 @@ func ProposePayment(
 }
 
 // RevealKey completes the partial transaction in paymentProposal (which came from ProposePayment).
-// The Tedd contract is on the contract stack. The arg stack is empty.
+// The Tredd contract is on the contract stack. The arg stack is empty.
 func RevealKey(
 	ctx context.Context,
 	paymentProposal []byte,
@@ -239,11 +239,11 @@ func RevealKey(
 			b.Op(op.Merge)
 		}
 	}
-	// con stack: teddcontract collateral
+	// con stack: treddcontract collateral
 	// arg stack: sigcheck sigcheck ...
 	if reservation.Change() > 0 {
 		b.PushdataInt64(reservation.Change()).Op(op.Split)
-		// con stack: teddcontract collateral change
+		// con stack: treddcontract collateral change
 		b.PushdataBytes([]byte{}).Op(op.Put)
 		b.PushdataBytes([]byte{}).Op(op.Put)
 		b.Op(op.Put)
@@ -257,13 +257,13 @@ func RevealKey(
 	buf := new(bytes.Buffer)
 	fmt.Fprintf(buf, "x'%x' exec\n", spendProg)
 
-	fmt.Fprintf(buf, "%d split\n", amount) // con stack: teddcontract zeroval collateral
+	fmt.Fprintf(buf, "%d split\n", amount) // con stack: treddcontract zeroval collateral
 
 	fmt.Fprintf(buf, "x'%x' put\n", seller)
 	fmt.Fprintf(buf, "x'%x' put\n", key[:])
 
 	fmt.Fprintf(buf, "put\n")  // move collateral to arg stack
-	fmt.Fprintf(buf, "swap\n") // con stack: zeroval teddcontract
+	fmt.Fprintf(buf, "swap\n") // con stack: zeroval treddcontract
 	fmt.Fprintf(buf, "call\n") // con stack: zeroval
 	fmt.Fprintf(buf, "finalize\n")
 
@@ -298,7 +298,7 @@ func RevealKey(
 	return append(tx1, tx2...), nil
 }
 
-// Redeem holds the values needed to redeem a Tedd contract
+// Redeem holds the values needed to redeem a Tredd contract
 // (whether by the seller claiming payment or the buyer claiming a refund).
 type Redeem struct {
 	RefundDeadline time.Time
@@ -319,7 +319,7 @@ func redeem(r *Redeem) *bytes.Buffer {
 	fmt.Fprintf(
 		buf,
 		"{'C', x'%x', x'%x', {'Z', %d}, {'S', x'%x'}, {'V', %d, x'%x', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}, {'S', x'%x'}} input\n",
-		teddContractSeed,
+		treddContractSeed,
 		redemptionProg,
 		bc.Millis(r.RefundDeadline),
 		r.Buyer,
@@ -335,7 +335,7 @@ func redeem(r *Redeem) *bytes.Buffer {
 }
 
 // ClaimPayment constructs a seller-claims-payment transaction,
-// rehydrating and invoking a Tedd contract from the utxo state (identified by the information in r).
+// rehydrating and invoking a Tredd contract from the utxo state (identified by the information in r).
 func ClaimPayment(r *Redeem) ([]byte, error) {
 	buf := redeem(r)
 	fmt.Fprintln(buf, "0 put call")
@@ -344,7 +344,7 @@ func ClaimPayment(r *Redeem) ([]byte, error) {
 }
 
 // ClaimRefund constructs a buyer-claims-refund transaction,
-// rehydrating a Tedd contract from the utxo state (identified by the information in r)
+// rehydrating a Tredd contract from the utxo state (identified by the information in r)
 // and calling it with the necessary proofs and other information.
 func ClaimRefund(r *Redeem, index int64, cipherChunk []byte, clearHash []byte, cipherProof, clearProof merkle.Proof) ([]byte, error) {
 	var prefix [binary.MaxVarintLen64]byte
@@ -378,7 +378,7 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 	fmt.Fprintln(w, "}")
 }
 
-// ParseResult holds the values parsed from the log of a transaction that invokes the propose-payment phase of a Tedd contract.
+// ParseResult holds the values parsed from the log of a transaction that invokes the propose-payment phase of a Tredd contract.
 // If the transaction is complete
 // (i.e., the seller has added the "reveal-key" call),
 // all of the fields will be filled in.
@@ -401,12 +401,12 @@ type ParseResult struct {
 	Seller         ed25519.PublicKey
 	Key            []byte
 
-	// OutputID is the id of the Tedd contract UTXO while awaiting redemption.
+	// OutputID is the id of the Tredd contract UTXO while awaiting redemption.
 	OutputID []byte
 }
 
 // ParseLog parses the log of a (possibly partial) transaction program.
-// If the log shows a call to an instance of the Tedd contract,
+// If the log shows a call to an instance of the Tredd contract,
 // ParseLog returns a ParseResult containing information extracted from the log.
 // Otherwise it returns nil.
 func ParseLog(prog []byte) *ParseResult {
@@ -426,7 +426,7 @@ func ParseLog(prog []byte) *ParseResult {
 		if !bytes.Equal(code, []byte{'R'}) {
 			continue
 		}
-		if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
+		if !bytes.Equal(item[1].(txvm.Bytes), treddContractSeed[:]) {
 			continue
 		}
 		res = &ParseResult{
@@ -451,7 +451,7 @@ func ParseLog(prog []byte) *ParseResult {
 			if !bytes.Equal(code, []byte{'L'}) {
 				continue
 			}
-			if !bytes.Equal(item[1].(txvm.Bytes), teddContractSeed[:]) {
+			if !bytes.Equal(item[1].(txvm.Bytes), treddContractSeed[:]) {
 				continue
 			}
 			res.Anchor2 = vm.Log[j][2].(txvm.Bytes)

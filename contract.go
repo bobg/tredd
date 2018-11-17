@@ -1,4 +1,4 @@
-package tedd
+package tredd
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/chain/txvm/protocol/txvm/asm"
 )
 
-// The Tedd contract, which holds funds in escrow and reveals the decryption key.
+// The Tredd contract, which holds funds in escrow and reveals the decryption key.
 // The "seller reveals key" section is inlined as an argument to yield.
 // The redemption clauses are inlined indirectly as part of that.
 // The buyer constructs a partial transaction that calls this contract once, with its initial args.
@@ -16,7 +16,7 @@ import (
 // The seller completes the transaction by adding another call of the contract with its own args.
 // Since the buyer unlocks funds to use in this contract but does not publish the transaction,
 // they should secure those funds by using a signature program checking the transaction log for the expected values (as described in the "log" comment column here).
-const teddContractFmt = `
+const treddContractFmt = `
 	                #  con stack                                          arg stack                                                         log                              notes
 	                #  ---------                                          ---------                                                         ---                              -----
 	                #                                                     payment clearRoot cipherRoot buyer refundDeadline revealDeadline
@@ -34,12 +34,12 @@ const teddContractFmt = `
 `
 
 var (
-	teddContractSrc  = fmt.Sprintf(teddContractFmt, sellerRevealsKeyProg)
-	teddContractProg = mustAssemble(teddContractSrc)
-	teddContractSeed = txvm.ContractSeed(teddContractProg)
+	treddContractSrc  = fmt.Sprintf(treddContractFmt, sellerRevealsKeyProg)
+	treddContractProg = mustAssemble(treddContractSrc)
+	treddContractSeed = txvm.ContractSeed(treddContractProg)
 )
 
-// The second, post-yield phase of the Tedd contract,
+// The second, post-yield phase of the Tredd contract,
 // in which the seller reveals the decryption key.
 const sellerRevealsKeyFmt = `
 	                   #  con stack                                                                                              arg stack              log                            notes
@@ -61,7 +61,7 @@ var (
 	sellerRevealsKeyProg = mustAssemble(sellerRevealsKeySrc)
 )
 
-// Dispatcher for the redemption phase of the Tedd contract:
+// Dispatcher for the redemption phase of the Tredd contract:
 // either the seller claims payment (by putting a 0 on the stack)
 // or the buyer claims a refund (by putting proofs, etc. followed by a 1 on the stack).
 const redemptionFmt = `
@@ -86,7 +86,7 @@ var (
 	redemptionProg = mustAssemble(redemptionSrc)
 )
 
-// One of two Tedd-contract redemption clauses.
+// One of two Tredd-contract redemption clauses.
 const sellerClaimsPaymentFmt = `
 	                     #  con stack                                 arg stack                                    log                                 notes
 	                     #  ---------                                 ---------                                    ---                                 -----
@@ -105,7 +105,7 @@ var (
 	sellerClaimsPaymentProg = mustAssemble(sellerClaimsPaymentSrc)
 )
 
-// One of two Tedd-contract redemption clauses.
+// One of two Tredd-contract redemption clauses.
 const buyerClaimsRefundFmt = `
 	                     #  con stack                                                                                                                        arg stack                                                log                                 notes
 	                     #  ---------                                                                                                                        ---------                                                ---                                 -----

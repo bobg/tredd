@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bobg/tedd"
+	"github.com/bobg/tredd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
@@ -70,7 +70,7 @@ func processBlock(dbtx *bbolt.Tx, b *bc.Block, pubkey ed25519.PublicKey) error {
 
 type reservation struct {
 	r         *reserver
-	utxos     []tedd.UTXO // 1:1 with outputIDs
+	utxos     []tredd.UTXO // 1:1 with outputIDs
 	outputIDs [][]byte    // 1:1 with utxos
 	change    int64
 }
@@ -81,7 +81,7 @@ type reserver struct {
 	db *bbolt.DB
 }
 
-func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now, exp time.Time) (tedd.Reservation, error) {
+func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now, exp time.Time) (tredd.Reservation, error) {
 	res := &reservation{r: r}
 	err := r.db.Update(func(tx *bbolt.Tx) error {
 		utxos := tx.Bucket([]byte("utxos"))
@@ -141,7 +141,7 @@ func (r *reserver) Reserve(_ context.Context, amount int64, assetID bc.Hash, now
 	return res, err
 }
 
-func (r *reservation) UTXOs() []tedd.UTXO {
+func (r *reservation) UTXOs() []tredd.UTXO {
 	return r.utxos
 }
 

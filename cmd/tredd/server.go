@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bobg/tedd"
+	"github.com/bobg/tredd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
@@ -126,12 +126,12 @@ type server struct {
 	dir       string    // content
 	seller    ed25519.PublicKey
 	o         *observer
-	signer    tedd.Signer
+	signer    tredd.Signer
 	submitter func(prog []byte, version, runlimit int64) error
 }
 
 type serverRecord struct {
-	tedd.ParseResult
+	tredd.ParseResult
 	transferID [32]byte
 }
 
@@ -226,7 +226,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	}
 
 	rec := &serverRecord{
-		ParseResult: tedd.ParseResult{
+		ParseResult: tredd.ParseResult{
 			Amount:         amount,
 			AssetID:        assetID,
 			ClearRoot:      clearRoot,
@@ -245,10 +245,10 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	log.Printf("new transfer %x, clearRoot %x, payment %d/%x, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, assetID, revealDeadline, refundDeadline, key[:])
 
-	w.Header().Set("X-Tedd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
+	w.Header().Set("X-Tredd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
 
-	tmpfile, err := ioutil.TempFile("", "teddserve")
+	tmpfile, err := ioutil.TempFile("", "treddserve")
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "creating response tempfile: %s", err)
 		return
@@ -257,7 +257,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	defer os.Remove(tmpfilename)
 	defer tmpfile.Close()
 
-	cipherRoot, err := tedd.Serve(tmpfile, f, key)
+	cipherRoot, err := tredd.Serve(tmpfile, f, key)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "serving data: %s", err)
 		return
@@ -291,7 +291,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
-	transferIDStr := req.Header.Get("X-Tedd-Transfer-Id")
+	transferIDStr := req.Header.Get("X-Tredd-Transfer-Id")
 
 	paymentProposal, err := ioutil.ReadAll(req.Body)
 	if err != nil {
@@ -323,13 +323,13 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 	now := time.Now()
 
-	prog, err := tedd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
+	prog, err := tredd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
 	}
 
-	parsed := tedd.ParseLog(prog)
+	parsed := tredd.ParseLog(prog)
 	if parsed == nil {
 		httpErrf(w, http.StatusInternalServerError, "parsing tx log")
 		return
@@ -501,7 +501,7 @@ func (s *server) queueClaimPayment(transferID []byte) error {
 
 func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 	s.o.enqueue(rec.RefundDeadline, func() {
-		redeem := &tedd.Redeem{
+		redeem := &tredd.Redeem{
 			RefundDeadline: rec.RefundDeadline,
 			Buyer:          rec.Buyer,
 			Seller:         s.seller,
@@ -513,7 +513,7 @@ func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 		copy(redeem.ClearRoot[:], rec.ClearRoot)
 		copy(redeem.Key[:], rec.Key)
 
-		prog, err := tedd.ClaimPayment(redeem)
+		prog, err := tredd.ClaimPayment(redeem)
 		if err != nil {
 			log.Fatalf("constructing claim-payment transaction: %s", err)
 		}

@@ -1,4 +1,4 @@
-package tedd
+package tredd
 
 import (
 	"bytes"

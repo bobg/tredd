@@ -1,4 +1,4 @@
-package tedd
+package tredd
 
 import (
 	"crypto/sha256"
@@ -7,7 +7,7 @@ import (
 	"github.com/chain/txvm/protocol/txvm"
 )
 
-// ChunkSize is the size of a chunk of Tedd data.
+// ChunkSize is the size of a chunk of Tredd data.
 const ChunkSize = 8192
 
 // ChunkStore stores and retrieves data in chunks.

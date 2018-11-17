@@ -15,14 +15,14 @@ import (
 	"time"
 
 	"github.com/bobg/merkle"
-	"github.com/bobg/tedd"
+	"github.com/bobg/tredd"
 	"github.com/chain/txvm/errors"
 	"github.com/coreos/bbolt"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: tedd add [-dir DIR] FILE ...")
+		log.Fatal("usage: tredd add [-dir DIR] FILE ...")
 	}
 	switch os.Args[1] {
 	case "add":
@@ -69,7 +69,7 @@ func addFile(file, dir, contentType string) error {
 	var (
 		tree   = merkle.NewTree(sha256.New())
 		hasher = sha256.New()
-		chunk  [tedd.ChunkSize]byte
+		chunk  [tredd.ChunkSize]byte
 	)
 
 	for index := uint64(0); ; index++ {
@@ -144,7 +144,7 @@ func decrypt(args []string) {
 		log.Fatal(err)
 	}
 	for index := uint64(0); ; index++ {
-		var buf [tedd.ChunkSize]byte
+		var buf [tredd.ChunkSize]byte
 		n, err := io.ReadFull(os.Stdin, buf[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
@@ -153,7 +153,7 @@ func decrypt(args []string) {
 		if err != nil && err != io.ErrUnexpectedEOF {
 			log.Fatal(err)
 		}
-		tedd.Crypt(key, buf[:n], index)
+		tredd.Crypt(key, buf[:n], index)
 		os.Stdout.Write(buf[:n])
 	}
 }

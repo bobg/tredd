@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/bobg/merkle"
-	"github.com/bobg/tedd"
+	"github.com/bobg/tredd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
@@ -41,7 +41,7 @@ func get(args []string) {
 		refundDeadlineDurStr = fs.String("refund", "", "time from reveal deadline until refund deadline")
 		dbFile               = fs.String("db", "", "file containing client-state db")
 		prvFile              = fs.String("prv", "", "file containing client private key")
-		serverURL            = fs.String("server", "", "base URL of tedd server")
+		serverURL            = fs.String("server", "", "base URL of tredd server")
 		bcURL                = fs.String("bcurl", "", "base URL of blockchain server")
 		dir                  = fs.String("dir", "", "root dir for file transfers")
 	)
@@ -125,7 +125,7 @@ func get(args []string) {
 	}
 
 	var (
-		transferID       = resp.Header.Get("X-Tedd-Transfer-Id")
+		transferID       = resp.Header.Get("X-Tredd-Transfer-Id")
 		clearHashesFile  = path.Join(*dir, fmt.Sprintf("hashes-%s", transferID))
 		cipherChunksFile = path.Join(*dir, fmt.Sprintf("chunks-%s", transferID))
 	)
@@ -136,14 +136,14 @@ func get(args []string) {
 	}
 	defer os.Remove(clearHashesFile) // TODO: keep this around if needed to recover from errors
 
-	cipherChunks, err := newFileChunkStore(cipherChunksFile, tedd.ChunkSize)
+	cipherChunks, err := newFileChunkStore(cipherChunksFile, tredd.ChunkSize)
 	if err != nil {
 		log.Fatalf("creating cipher chunk store: %s", err)
 	}
 	defer os.Remove(cipherChunksFile) // TODO: keep this around if needed to recover from errors
 
 	log.Print("storing cipher chunks and checking clear hashes")
-	cipherRoot, err := tedd.Get(resp.Body, clearRoot, clearHashes, cipherChunks)
+	cipherRoot, err := tredd.Get(resp.Body, clearRoot, clearHashes, cipherChunks)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -157,12 +157,12 @@ func get(args []string) {
 
 	now := time.Now()
 
-	prog, err := tedd.ProposePayment(ctx, buyer, *amount, assetID, clearRoot, cipherRootBuf, now, revealDeadline, refundDeadline, o.r, signer)
+	prog, err := tredd.ProposePayment(ctx, buyer, *amount, assetID, clearRoot, cipherRootBuf, now, revealDeadline, refundDeadline, o.r, signer)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	parsed := tedd.ParseLog(prog)
+	parsed := tredd.ParseLog(prog)
 	if parsed == nil {
 		log.Fatal("cannot parse log of proposed payment transaction")
 	}
@@ -171,7 +171,7 @@ func get(args []string) {
 	submit := submitter(*bcURL + "/submit")
 
 	o.setcb(func(tx *bc.Tx) {
-		parsed := tedd.ParseLog(tx.Program)
+		parsed := tredd.ParseLog(tx.Program)
 		if parsed == nil {
 			return
 		}
@@ -194,11 +194,11 @@ func get(args []string) {
 		}
 		defer out.Close()
 
-		err = tedd.Decrypt(out, clearHashes, cipherChunks, key)
-		if bchErr, ok := err.(tedd.BadClearHashError); ok {
+		err = tredd.Decrypt(out, clearHashes, cipherChunks, key)
+		if bchErr, ok := err.(tredd.BadClearHashError); ok {
 			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
 
-			redeem := &tedd.Redeem{
+			redeem := &tredd.Redeem{
 				RefundDeadline: refundDeadline,
 				Buyer:          buyer,
 				Seller:         parsed.Seller,
@@ -212,7 +212,7 @@ func get(args []string) {
 
 			var (
 				refHash        [32 + binary.MaxVarintLen64]byte
-				refCipherChunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
+				refCipherChunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
 			)
 			m := binary.PutUvarint(refHash[:], bchErr.Index)
 			binary.PutUvarint(refCipherChunk[:], bchErr.Index)
@@ -239,7 +239,7 @@ func get(args []string) {
 				log.Fatalf("getting length of cipher chunk store %s: %s", cipherChunks.filename, err)
 			}
 			for index := uint64(0); index < uint64(nchunks); index++ {
-				var chunk [tedd.ChunkSize + binary.MaxVarintLen64]byte
+				var chunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
 				m := binary.PutUvarint(chunk[:], index)
 				ci, err := cipherChunks.Get(index)
 				if err != nil {
@@ -261,7 +261,7 @@ func get(args []string) {
 				cipherProof = cipherTree.Proof()
 			)
 
-			prog, err := tedd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
+			prog, err := tredd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
 			if err != nil {
 				log.Fatalf("constructing refund-claiming transaction: %s", err)
 			}
@@ -295,7 +295,7 @@ func get(args []string) {
 	}
 	req = req.WithContext(ctx)
 
-	req.Header.Set("X-Tedd-Transfer-Id", transferID)
+	req.Header.Set("X-Tredd-Transfer-Id", transferID)
 
 	var client http.Client
 	resp, err = client.Do(req) // from this point, funds are committed - perhaps even in case of error
