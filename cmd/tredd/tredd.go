@@ -123,6 +123,8 @@ func addFile(file, dir, contentType string) error {
 		return errors.Wrapf(err, "copying %s to %s", file, destName)
 	}
 
+	fmt.Printf("added %x\n", clearHash)
+
 	return nil
 }
 
