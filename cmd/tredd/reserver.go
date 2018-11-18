@@ -71,7 +71,7 @@ func processBlock(dbtx *bbolt.Tx, b *bc.Block, pubkey ed25519.PublicKey) error {
 type reservation struct {
 	r         *reserver
 	utxos     []tredd.UTXO // 1:1 with outputIDs
-	outputIDs [][]byte    // 1:1 with utxos
+	outputIDs [][]byte     // 1:1 with utxos
 	change    int64
 }
 

@@ -16,6 +16,8 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bobg/merkle"
@@ -104,7 +106,14 @@ func get(args []string) {
 
 	log.Print("launching blockchain observer")
 	o := newObserver(db, buyer, *bcURL+"/get")
+
+	q := newQuiescenceWaiter()
+	o.setcb(func(*bc.Tx) { q.ping() })
 	go o.run(ctx)
+
+	log.Print("waiting to catch up...")
+	q.wait()
+	log.Print("...caught up")
 
 	vals := url.Values{}
 	vals.Add("clearroot", *clearRootHex)
@@ -314,4 +323,48 @@ func get(args []string) {
 
 	log.Print("awaiting key or reveal deadline")
 	<-ctx.Done()
+}
+
+type quiescenceWaiter struct {
+	mu sync.Mutex
+	c  *sync.Cond
+	t  time.Time
+}
+
+func newQuiescenceWaiter() *quiescenceWaiter {
+	q := new(quiescenceWaiter)
+	q.c = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *quiescenceWaiter) ping() {
+	q.mu.Lock()
+	q.t = time.Now()
+	q.c.Broadcast()
+	q.mu.Unlock()
+}
+
+// wait returns when q has not been pinged for one second.
+func (q *quiescenceWaiter) wait() {
+	ch := make(chan struct{})
+	var done int32
+	go func() {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		for atomic.LoadInt32(&done) == 0 {
+			ch <- struct{}{}
+			q.c.Wait()
+		}
+		close(ch)
+	}()
+	for {
+		t := time.NewTimer(time.Second)
+		select {
+		case <-t.C:
+			atomic.StoreInt32(&done, 1)
+			return
+		case <-ch:
+			t.Stop()
+		}
+	}
 }

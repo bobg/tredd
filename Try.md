@@ -125,11 +125,6 @@ reported above by `tredd add`,
 TREDDLISTEN is the address of the Tredd server,
 and TXVMBCDLISTEN is the address of the txvmbcd server.
 
-[Note:
-At this writing,
-a bug in the Tredd client makes it likely that this will fail the first time with an “insufficient funds” error.
-Running it again should work OK.]
-
 This command will send a request to the Tredd server proposing payment of 1 unit of our defined asset in exchange for the content identified by HASH.
 The proposal also includes a deadline of 15 minutes for the server to publish its “reveal-key” transaction on the blockchain,
 and another 15 minutes for the client to claim a refund if warranted.
