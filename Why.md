@@ -13,7 +13,7 @@ and that’s the problem.
 The price is the hijacking of our attention,
 and ultimately our _intention_,
 using increasingly sophisticated tactics from
-[psychological warfare](https://en.wikipedia.org/wiki/Psychological_warfare).
+[psychological warfare](https://www.psychologytoday.com/us/blog/psych-unseen/201803/the-internet-psychological-warfare-and-mass-conspiracy).
 
 Nevertheless,
 the services _feel_ free,
@@ -26,10 +26,15 @@ Some services employ
 they are ad-supported when offered for free,
 but they can also be paid for by the user to eliminate ads and perhaps unlock additional features.
 
-One problem with freemium is the overhead introduced by the payment layer.
-Each provider has its own separate payment interface.
+Enough people choosing the payment option of freemium would loosen the grip that Internet advertising has on us all.
+But the implementation of freemium is problematic.
+Never mind the price:
+the payment mechanisms of freemium involve too much overhead.
+Each provider has its own separate payment “flow.”
 Monthly subscriptions must be renewed.
 Pricing tiers are coarse.
+Think about it:
 How many different service providers do _you_ want to deal with signing up for?
 
-The goal of Tredd is to provide part of a uniform micropay-per-use infrastructure that can be shared by all service providers.
+The goal of Tredd is to solve this part of the killing-advertising problem.
+It supplies a uniform infrastructure for per-use micropayments that can be shared by all service providers.
