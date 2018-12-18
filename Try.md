@@ -44,7 +44,7 @@ cd to the directory and create a private/public keypair for an asset issuer:
 
 ```sh
 $ cd /path/to/dir
-$ ed25519 gen | tee issuer.prv | ed25519 public >issuer.pub
+$ ed25519 gen | tee issuer.prv | ed25519 pub >issuer.pub
 ```
 
 Compute the ID of the default asset produced by this issuer:
@@ -56,20 +56,20 @@ $ assetid 1 `hex <issuer.pub` >asset-id
 Create a private/public keypair for a Tredd seller of some information:
 
 ```sh
-$ ed25519 gen | tee seller.prv | ed25519 public >seller.pub
+$ ed25519 gen | tee seller.prv | ed25519 pub >seller.pub
 ```
 
 Also for a Tredd buyer:
 
 ```sh
-$ ed25519 gen | tee buyer.prv | ed25519 public >buyer.pub
+$ ed25519 gen | tee buyer.prv | ed25519 pub >buyer.pub
 ```
 
 Build and submit a transaction to the blockchain that issues 100 units of that asset,
 sending 50 to the seller and 50 to the buyer:
 
 ```sh
-$ tx build issue -blockchain BLOCKCHAINID -quorum 1 -prv `hex <issuer.prv` -pub `hex <issuer.pub` -amount 100 output -quorum 1 -pub `hex <seller.pub` -amount 50 -assetid `hex <asset-id` output -quorum 1 -pub `hex <buyer.pub` -amount 50 -assetid `hex <asset-id` | curl --data-binary @- http://LISTENADDR
+$ tx build issue -blockchain BLOCKCHAINID -quorum 1 -prv `hex <issuer.prv` -pub `hex <issuer.pub` -amount 100 output -quorum 1 -pub `hex <seller.pub` -amount 50 -assetid `hex <asset-id` output -quorum 1 -pub `hex <buyer.pub` -amount 50 -assetid `hex <asset-id` | curl --data-binary @- http://LISTENADDR/submit
 ```
 
 Here,
