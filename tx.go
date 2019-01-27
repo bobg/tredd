@@ -40,7 +40,10 @@ func ProposePayment(
 	}
 
 	// Where the TREDD contract log entries start.
-	utxos := reservation.UTXOs()
+	utxos, err := reservation.UTXOs(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying utxos from reservation")
+	}
 	treddLogPos := 2 * int64(len(utxos)) // one 'I' and one 'L' log entry per standard input
 
 	// With the knowledge of the input args and the TREDD log position,
@@ -49,7 +52,11 @@ func ProposePayment(
 
 	fmt.Fprint(buf, "[")
 
-	if reservation.Change() > 0 {
+	change, err := reservation.Change(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying change amount from reservation")
+	}
+	if change > 0 {
 		treddLogPos += 3 // one 'O' and two 'L' log entries
 		fmt.Fprintf(buf, "%d peeklog untuple\n", treddLogPos-1)
 
@@ -69,7 +76,7 @@ func ProposePayment(
 		anchor = txvm.VMHash("Split2", anchor[:])
 
 		b := new(txvmutil.Builder)
-		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2[:])
+		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, change, assetID, anchor[:], standard.PayToMultisigSeed2[:])
 		snapshot := b.Build()
 
 		// This lops off the "input" and "call" opcodes at the end of standard.SpendMultisig.
@@ -125,7 +132,7 @@ func ProposePayment(
 	copy(anchoredSigprog, sigprog)
 
 	b := new(txvmutil.Builder)
-	for i, utxo := range reservation.UTXOs() {
+	for i, utxo := range utxos {
 		b.PushdataBytes([]byte{}).Op(op.Put)
 		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
@@ -147,8 +154,8 @@ func ProposePayment(
 			b.Op(op.Merge)
 		}
 	}
-	if reservation.Change() > 0 {
-		b.PushdataInt64(reservation.Change()).Op(op.Split)
+	if change > 0 {
+		b.PushdataInt64(change).Op(op.Split)
 
 		b.PushdataBytes(nil).Op(op.Put)
 		b.PushdataBytes(nil).Op(op.Put)
@@ -165,8 +172,8 @@ func ProposePayment(
 	b.PushdataBytes(clearRoot[:]).Op(op.Put)
 	b.PushdataBytes(cipherRoot[:]).Op(op.Put)
 	b.PushdataBytes(buyer).Op(op.Put)
-	b.PushdataInt64(int64(bc.Millis(refundDeadline))).Op(op.Put) // xxx range checking
-	b.PushdataInt64(int64(bc.Millis(revealDeadline))).Op(op.Put) // xxx range checking
+	b.PushdataInt64(int64(bc.Millis(refundDeadline))).Op(op.Put) // TODO: range check
+	b.PushdataInt64(int64(bc.Millis(revealDeadline))).Op(op.Put) // TODO: range check
 
 	b.Op(op.Call)
 
@@ -177,7 +184,7 @@ func ProposePayment(
 
 	// Now that the first phase of the tredd contract has run and begun to populate the tx log,
 	// the sig progs, which check the log, can run.
-	for i := 0; i < len(reservation.UTXOs()); i++ {
+	for i := 0; i < len(utxos); i++ {
 		b.Op(op.Get).Op(op.Call)
 	}
 
@@ -228,7 +235,11 @@ func RevealKey(
 
 	b := new(txvmutil.Builder)
 
-	for i, utxo := range reservation.UTXOs() {
+	utxos, err := reservation.UTXOs(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying utxos from reservation")
+	}
+	for i, utxo := range utxos {
 		b.PushdataBytes([]byte{}).Op(op.Put)
 		standard.SpendMultisig(b, 1, []ed25519.PublicKey{seller}, utxo.Amount(), utxo.AssetID(), utxo.Anchor(), standard.PayToMultisigSeed2[:])
 		// arg stack: [<value> <deferred contract>]
@@ -241,8 +252,12 @@ func RevealKey(
 	}
 	// con stack: treddcontract collateral
 	// arg stack: sigcheck sigcheck ...
-	if reservation.Change() > 0 {
-		b.PushdataInt64(reservation.Change()).Op(op.Split)
+	change, err := reservation.Change(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "querying change amount from reservation")
+	}
+	if change > 0 {
+		b.PushdataInt64(change).Op(op.Split)
 		// con stack: treddcontract collateral change
 		b.PushdataBytes([]byte{}).Op(op.Put)
 		b.PushdataBytes([]byte{}).Op(op.Put)
@@ -281,8 +296,8 @@ func RevealKey(
 	// sign seller utxos
 	buf = new(bytes.Buffer)
 	sigprog := standard.VerifyTxID(vm.TxID)
-	for i := len(reservation.UTXOs()) - 1; i >= 0; i-- {
-		utxo := reservation.UTXOs()[i]
+	for i := len(utxos) - 1; i >= 0; i-- {
+		utxo := utxos[i]
 		anchoredSigprog := append([]byte{}, sigprog...)
 		anchoredSigprog = append(anchoredSigprog, utxo.Anchor()...)
 		sig, err := signer(anchoredSigprog)
@@ -430,7 +445,7 @@ func ParseLog(prog []byte) *ParseResult {
 			continue
 		}
 		res = &ParseResult{
-			RevealDeadline: bc.FromMillis(uint64(item[3].(txvm.Int))), // xxx range checking
+			RevealDeadline: bc.FromMillis(uint64(item[3].(txvm.Int))), // TODO: range check
 			RefundDeadline: bc.FromMillis(uint64(vm.Log[i+1][2].(txvm.Int))),
 			Buyer:          ed25519.PublicKey(vm.Log[i+2][2].(txvm.Bytes)),
 			CipherRoot:     vm.Log[i+3][2].(txvm.Bytes),

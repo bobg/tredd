@@ -24,7 +24,6 @@ import (
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
-	"github.com/coreos/bbolt"
 )
 
 func get(args []string) {
@@ -97,7 +96,7 @@ func get(args []string) {
 	}
 	refundDeadline := revealDeadline.Add(refundDeadlineDur)
 
-	db, err := bbolt.Open(*dbFile, 0600, nil)
+	db, err := openDB(ctx, *dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -118,8 +117,8 @@ func get(args []string) {
 	vals.Add("clearroot", *clearRootHex)
 	vals.Add("amount", strconv.FormatInt(*amount, 10))
 	vals.Add("assetid", *assetIDHex)
-	vals.Add("revealdeadline", strconv.FormatInt(int64(bc.Millis(revealDeadline)), 10)) // xxx range check
-	vals.Add("refunddeadline", strconv.FormatInt(int64(bc.Millis(refundDeadline)), 10)) // xxx range check
+	vals.Add("revealdeadline", strconv.FormatInt(int64(bc.Millis(revealDeadline)), 10)) // TODO: range check
+	vals.Add("refunddeadline", strconv.FormatInt(int64(bc.Millis(refundDeadline)), 10)) // TODO: range check
 
 	log.Print("requesting content")
 	resp, err := http.PostForm(requestURL, vals)
@@ -269,7 +268,7 @@ func get(args []string) {
 				cipherProof = cipherTree.Proof()
 			)
 
-			prog, err := tredd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
+			prog, err := tredd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // TODO: range check
 			if err != nil {
 				log.Fatalf("constructing refund-claiming transaction: %s", err)
 			}

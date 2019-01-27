@@ -48,7 +48,7 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	}
 	defer f.Close()
 
-	_, err = f.Seek(int64(index)*s.chunksize, os.SEEK_SET) // xxx range check
+	_, err = f.Seek(int64(index)*s.chunksize, os.SEEK_SET) // TODO: range check
 	if err != nil {
 		return nil, err
 	}

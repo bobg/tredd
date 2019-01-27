@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -14,7 +14,6 @@ import (
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
-	"github.com/coreos/bbolt"
 )
 
 // Observer observes a blockchain,
@@ -24,7 +23,7 @@ import (
 // It also maintains a queue of timers
 // and a callback function called on every tx of every block.
 type observer struct {
-	db     *bbolt.DB
+	db     *sql.DB
 	pubkey ed25519.PublicKey
 	r      *reserver
 	url    string
@@ -39,7 +38,7 @@ type timer struct {
 	f func()
 }
 
-func newObserver(db *bbolt.DB, pubkey ed25519.PublicKey, url string) *observer {
+func newObserver(db *sql.DB, pubkey ed25519.PublicKey, url string) *observer {
 	return &observer{
 		db:     db,
 		pubkey: pubkey,
@@ -53,7 +52,7 @@ func (o *observer) run(ctx context.Context) {
 	var client http.Client
 
 	for {
-		height, err := o.height()
+		height, err := o.height(ctx)
 		if err != nil {
 			log.Fatalf("getting blockchain height: %s", err)
 		}
@@ -71,7 +70,7 @@ func (o *observer) run(ctx context.Context) {
 		if err != nil {
 			log.Printf("error getting block at height %d from %s, will retry in ~5 seconds: %s", height+1, o.url, err)
 
-			t := time.NewTimer(5 * time.Second) // xxx add jitter
+			t := time.NewTimer(5 * time.Second) // TODO: add jitter
 			select {
 			case <-t.C:
 				continue
@@ -97,37 +96,25 @@ func (o *observer) run(ctx context.Context) {
 				return errors.Wrap(err, "parsing block")
 			}
 
-			err = o.db.Update(func(tx *bbolt.Tx) error {
-				root, err := tx.CreateBucketIfNotExists([]byte("root"))
-				if err != nil {
-					return errors.Wrap(err, "getting/creating root bucket")
-				}
+			dbtx, err := o.db.Begin()
+			if err != nil {
+				return errors.Wrap(err, "beginning db transaction")
+			}
+			defer dbtx.Rollback()
 
-				var heightBuf [binary.MaxVarintLen64]byte
-				m := binary.PutUvarint(heightBuf[:], b.Height)
-				err = root.Put([]byte("height"), heightBuf[:m])
-				if err != nil {
-					return errors.Wrap(err, "storing blockchain height")
-				}
+			err = processBlock(ctx, dbtx, b, o.pubkey)
+			if err != nil {
+				return errors.Wrap(err, "updating reserver")
+			}
 
-				var nowMSBuf [binary.MaxVarintLen64]byte
-				m = binary.PutUvarint(nowMSBuf[:], b.TimestampMs)
-				err = root.Put([]byte("nowMS"), nowMSBuf[:m])
-				if err != nil {
-					return errors.Wrap(err, "storing blockchain time")
-				}
-
-				return nil
-			})
+			_, err = dbtx.ExecContext(ctx, "INSERT OR REPLACE INTO latest_block (height, timestamp_ms) VALUES ($1, $2)", b.Height, b.TimestampMs)
 			if err != nil {
 				return errors.Wrap(err, "storing block info")
 			}
 
-			err = o.db.Update(func(tx *bbolt.Tx) error {
-				return processBlock(tx, b, o.pubkey)
-			})
+			err = dbtx.Commit()
 			if err != nil {
-				return errors.Wrap(err, "updating reserver")
+				return errors.Wrap(err, "committing db transaction")
 			}
 
 			now := bc.FromMillis(b.TimestampMs)
@@ -160,40 +147,19 @@ func (o *observer) setcb(cb func(*bc.Tx)) {
 	o.mu.Unlock()
 }
 
-func (o *observer) height() (uint64, error) {
+func (o *observer) height(ctx context.Context) (uint64, error) {
 	var height uint64
-	err := o.db.View(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte("root"))
-		if root == nil {
-			return nil
-		}
-		heightBits := root.Get([]byte("height"))
-		if len(heightBits) == 0 {
-			return nil
-		}
-		var n int
-		height, n = binary.Uvarint(heightBits)
-		if n < 1 {
-			return fmt.Errorf("parsing blockchain height")
-		}
-		return nil
-	})
-	return height, errors.Wrap(err, "getting blockchain height")
+	err := o.db.QueryRowContext(ctx, "SELECT height FROM latest_block WHERE singleton = 0").Scan(&height)
+	return height, err
 }
 
-func (o *observer) now() (time.Time, error) {
-	var result time.Time
-	err := o.db.View(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte("root"))      // xxx check
-		nowMSBits := root.Get([]byte("nowMS")) // xxx check
-		nowMS, n := binary.Uvarint(nowMSBits)
-		if n < 1 {
-			return fmt.Errorf("parsing blockchain time")
-		}
-		result = bc.FromMillis(nowMS)
-		return nil
-	})
-	return result, errors.Wrap(err, "getting blockchain time")
+func (o *observer) now(ctx context.Context) (time.Time, error) {
+	var timestampMS uint64
+	err := o.db.QueryRowContext(ctx, "SELECT timestamp_ms FROM latest_block WHERE singleton = 0").Scan(&timestampMS)
+	if err != nil {
+		return time.Time{}, errors.Wrap(err, "querying timestamp from db")
+	}
+	return bc.FromMillis(timestampMS), nil
 }
 
 func (o *observer) enqueue(t time.Time, f func()) {
