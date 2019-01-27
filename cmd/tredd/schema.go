@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS utxos (
   output_id BLOB NOT NULL PRIMARY KEY,
   asset_id BLOB NOT NULL,
   amount INTEGER NOT NULL,
-  anchor BLOB NOT NULL,
+  anchor BLOB NOT NULL
 );
 
 CREATE INDEX utxos_asset_id ON utxos (asset_id);
