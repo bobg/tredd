@@ -100,7 +100,7 @@ $ tredd serve -dir server-content -db server.db -prv seller.prv -url http://LIST
 
 Here, LISTENADDR is the address of the txvmbcd server, still running in another shell.
 
-This will create the file `seller.db` and produce log output in the shell,
+This will create the file `server.db` and produce log output in the shell,
 including the listen address of the Tredd server, which you’ll need in the next step.
 
 With the txvmbcd and Tredd servers running, it’s time to request and pay for some content.

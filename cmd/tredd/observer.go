@@ -107,7 +107,7 @@ func (o *observer) run(ctx context.Context) {
 				return errors.Wrap(err, "updating reserver")
 			}
 
-			_, err = dbtx.ExecContext(ctx, "INSERT OR REPLACE INTO latest_block (height, timestamp_ms) VALUES ($1, $2)", b.Height, b.TimestampMs)
+			_, err = dbtx.ExecContext(ctx, "INSERT OR REPLACE INTO latest_block (singleton, height, timestamp_ms) VALUES (0, $1, $2)", b.Height, b.TimestampMs)
 			if err != nil {
 				return errors.Wrap(err, "storing block info")
 			}
@@ -150,6 +150,9 @@ func (o *observer) setcb(cb func(*bc.Tx)) {
 func (o *observer) height(ctx context.Context) (uint64, error) {
 	var height uint64
 	err := o.db.QueryRowContext(ctx, "SELECT height FROM latest_block WHERE singleton = 0").Scan(&height)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return height, err
 }
 

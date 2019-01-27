@@ -176,7 +176,7 @@ func utxos(args []string) {
 	}
 	defer db.Close()
 
-	const q = `SELECT outputID, assetID, amount, anchor FROM utxos ORDER BY assetID`
+	const q = `SELECT output_id, asset_id, amount, anchor FROM utxos ORDER BY asset_id`
 	err = sqlutil.ForQueryRows(ctx, db, q, func(outputID, assetID []byte, amount int64, anchor []byte) {
 		fmt.Printf("asset %x output %x amount %d anchor %x\n", assetID, outputID, amount, anchor)
 		// TODO: also report reservationID/expiration if there is a pending reservation

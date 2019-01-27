@@ -86,24 +86,27 @@ func (r *reserver) Reserve(ctx context.Context, amount int64, assetID bc.Hash, n
 			   AND ru.output_id = u.output_id)
 	`
 	nowMS := bc.Millis(now)
-	err = sqlutil.ForQueryRows(ctx, dbtx, q, assetID, nowMS, func(utxoAmount int64, outputID []byte) error {
+	var outputIDs [][]byte
+	err = sqlutil.ForQueryRows(ctx, dbtx, q, assetID, nowMS, func(utxoAmount int64, outputID []byte) {
 		if amount <= 0 {
-			return nil
+			return
 		}
-		_, err := dbtx.ExecContext(ctx, "INSERT INTO reservation_utxos (reservation_id, output_id) VALUES ($1, $2)", reservationID, outputID)
-		if err != nil {
-			return errors.Wrapf(err, "adding utxo %x to reservation %d", outputID, reservationID)
-		}
+		outputIDs = append(outputIDs, outputID)
 		amount -= utxoAmount
-		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "querying db")
 	}
 	if amount > 0 {
-		return nil, errInsufficientFunds
+		return nil, errors.Wrapf(errInsufficientFunds, "reserving %d of %x", amount, assetID.Bytes())
 	}
 	res.change = -amount
+	for _, outputID := range outputIDs {
+		_, err = dbtx.ExecContext(ctx, "INSERT INTO reservation_utxos (reservation_id, output_id) VALUES ($1, $2)", reservationID, outputID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "adding utxo %x to reservation %d", outputID, reservationID)
+		}
+	}
 	err = dbtx.Commit()
 	return res, errors.Wrap(err, "committing db transaction")
 }

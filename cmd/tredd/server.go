@@ -364,11 +364,16 @@ func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecor
 			WHERE transfer_id = $1
 	`
 
-	var revealDeadlineMS, refundDeadlineMS uint64
-	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.OutputID, &rec.ClearRoot, &rec.CipherRoot, &rec.AssetID, &rec.Amount, &rec.Anchor1, &rec.Anchor2, &revealDeadlineMS, &refundDeadlineMS, &rec.Buyer, &rec.Seller)
+	var (
+		revealDeadlineMS, refundDeadlineMS uint64
+		buyer, seller                      []byte
+	)
+	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.OutputID, &rec.ClearRoot, &rec.CipherRoot, &rec.AssetID, &rec.Amount, &rec.Anchor1, &rec.Anchor2, &revealDeadlineMS, &refundDeadlineMS, &buyer, &seller)
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
 	}
+	rec.Buyer = ed25519.PublicKey(buyer)
+	rec.Seller = ed25519.PublicKey(seller)
 	rec.RevealDeadline = bc.FromMillis(revealDeadlineMS)
 	rec.RefundDeadline = bc.FromMillis(refundDeadlineMS)
 	return &rec, nil
@@ -381,7 +386,7 @@ func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
-	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.OutputID, rec.ClearRoot, rec.CipherRoot, rec.AssetID, rec.Amount, rec.Anchor1, rec.Anchor2, bc.Millis(rec.RevealDeadline), bc.Millis(rec.RefundDeadline), rec.Buyer, rec.Seller)
+	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.OutputID, rec.ClearRoot, rec.CipherRoot, rec.AssetID, rec.Amount, rec.Anchor1, rec.Anchor2, bc.Millis(rec.RevealDeadline), bc.Millis(rec.RefundDeadline), []byte(rec.Buyer), []byte(rec.Seller))
 	return err
 }
 
