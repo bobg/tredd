@@ -29,7 +29,7 @@ but they can also be paid for by the user to eliminate ads and perhaps unlock ad
 Enough people choosing the payment option of freemium would loosen the grip that Internet advertising has on us all.
 But the implementation of freemium is problematic.
 Never mind the price:
-the payment mechanisms of freemium involve too much overhead.
+the _payment mechanisms_ of freemium involve too much overhead.
 Each provider has its own separate payment “flow.”
 Monthly subscriptions must be renewed.
 Pricing tiers are coarse.
@@ -37,4 +37,4 @@ Think about it:
 How many different service providers do _you_ want to deal with signing up for?
 
 The goal of Tredd is to solve this part of the killing-advertising problem.
-It supplies a uniform infrastructure for per-use micropayments that can be shared by all service providers.
+It demonstrates a uniform infrastructure for per-use micropayments that can be shared by all service providers.
