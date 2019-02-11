@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,12 +13,11 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"time"
 
 	"github.com/bobg/merkle"
+	"github.com/bobg/sqlutil"
 	"github.com/bobg/tredd"
 	"github.com/chain/txvm/errors"
-	"github.com/coreos/bbolt"
 )
 
 func main() {
@@ -167,42 +167,19 @@ func utxos(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	db, err := bbolt.Open(*dbFile, 0600, nil)
+
+	ctx := context.Background()
+
+	db, err := openDB(ctx, *dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	err = db.View(func(tx *bbolt.Tx) error {
-		utxos := tx.Bucket([]byte("utxos"))
-		if utxos == nil {
-			return nil
-		}
-		assetsCursor := utxos.Cursor()
-		for assetID, _ := assetsCursor.First(); assetID != nil; assetID, _ = assetsCursor.Next() {
-			assetBucket := utxos.Bucket(assetID)
-			outputsCursor := assetBucket.Cursor()
-			for outputID, _ := outputsCursor.First(); outputID != nil; outputID, _ = outputsCursor.Next() {
-				utxo := assetBucket.Bucket(outputID)
-				amtBytes := utxo.Get([]byte("amount"))
-				amt, n := binary.Varint(amtBytes)
-				if n < 1 {
-					return fmt.Errorf("cannot parse amount of utxo %x", outputID)
-				}
-				anchor := utxo.Get([]byte("anchor"))
-				expBytes := utxo.Get([]byte("expiration"))
-				if len(expBytes) > 0 {
-					var exp time.Time
-					err := exp.UnmarshalBinary(expBytes)
-					if err != nil {
-						return fmt.Errorf("parsing expiration time of output %x: %s", outputID, err)
-					}
-					fmt.Printf("asset %x output %x amount %d anchor %x expiration %s\n", assetID, outputID, amt, anchor, exp)
-				} else {
-					fmt.Printf("asset %x output %x amount %d anchor %x\n", assetID, outputID, amt, anchor)
-				}
-			}
-		}
-		return nil
+
+	const q = `SELECT output_id, asset_id, amount, anchor FROM utxos ORDER BY asset_id`
+	err = sqlutil.ForQueryRows(ctx, db, q, func(outputID, assetID []byte, amount int64, anchor []byte) {
+		fmt.Printf("asset %x output %x amount %d anchor %x\n", assetID, outputID, amount, anchor)
+		// TODO: also report reservationID/expiration if there is a pending reservation
 	})
 	if err != nil {
 		log.Fatal(err)

@@ -16,16 +16,14 @@ import (
 	"os"
 	"path"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bobg/merkle"
+	"github.com/bobg/quiescence"
 	"github.com/bobg/tredd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
-	"github.com/coreos/bbolt"
 )
 
 func get(args []string) {
@@ -98,7 +96,7 @@ func get(args []string) {
 	}
 	refundDeadline := revealDeadline.Add(refundDeadlineDur)
 
-	db, err := bbolt.Open(*dbFile, 0600, nil)
+	db, err := openDB(ctx, *dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -107,20 +105,20 @@ func get(args []string) {
 	log.Print("launching blockchain observer")
 	o := newObserver(db, buyer, *bcURL+"/get")
 
-	q := newQuiescenceWaiter()
-	o.setcb(func(*bc.Tx) { q.ping() })
+	q := quiescence.NewWaiter()
+	o.setcb(func(*bc.Tx) { q.Ping() })
 	go o.run(ctx)
 
 	log.Print("waiting to catch up...")
-	q.wait()
+	q.Wait(time.Second)
 	log.Print("...caught up")
 
 	vals := url.Values{}
 	vals.Add("clearroot", *clearRootHex)
 	vals.Add("amount", strconv.FormatInt(*amount, 10))
 	vals.Add("assetid", *assetIDHex)
-	vals.Add("revealdeadline", strconv.FormatInt(int64(bc.Millis(revealDeadline)), 10)) // xxx range check
-	vals.Add("refunddeadline", strconv.FormatInt(int64(bc.Millis(refundDeadline)), 10)) // xxx range check
+	vals.Add("revealdeadline", strconv.FormatInt(int64(bc.Millis(revealDeadline)), 10)) // TODO: range check
+	vals.Add("refunddeadline", strconv.FormatInt(int64(bc.Millis(refundDeadline)), 10)) // TODO: range check
 
 	log.Print("requesting content")
 	resp, err := http.PostForm(requestURL, vals)
@@ -270,7 +268,7 @@ func get(args []string) {
 				cipherProof = cipherTree.Proof()
 			)
 
-			prog, err := tredd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // xxx range check
+			prog, err := tredd.ClaimRefund(redeem, int64(bchErr.Index), refCipherChunk[m:m+len(g)], refHash[m:m+32], cipherProof, clearProof) // TODO: range check
 			if err != nil {
 				log.Fatalf("constructing refund-claiming transaction: %s", err)
 			}
@@ -323,48 +321,4 @@ func get(args []string) {
 
 	log.Print("awaiting key or reveal deadline")
 	<-ctx.Done()
-}
-
-type quiescenceWaiter struct {
-	mu sync.Mutex
-	c  *sync.Cond
-	t  time.Time
-}
-
-func newQuiescenceWaiter() *quiescenceWaiter {
-	q := new(quiescenceWaiter)
-	q.c = sync.NewCond(&q.mu)
-	return q
-}
-
-func (q *quiescenceWaiter) ping() {
-	q.mu.Lock()
-	q.t = time.Now()
-	q.c.Broadcast()
-	q.mu.Unlock()
-}
-
-// wait returns when q has not been pinged for one second.
-func (q *quiescenceWaiter) wait() {
-	ch := make(chan struct{})
-	var done int32
-	go func() {
-		q.mu.Lock()
-		defer q.mu.Unlock()
-		for atomic.LoadInt32(&done) == 0 {
-			ch <- struct{}{}
-			q.c.Wait()
-		}
-		close(ch)
-	}()
-	for {
-		t := time.NewTimer(time.Second)
-		select {
-		case <-t.C:
-			atomic.StoreInt32(&done, 1)
-			return
-		case <-ch:
-			t.Stop()
-		}
-	}
 }

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/binary"
+	"database/sql"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -18,12 +18,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bobg/sqlutil"
 	"github.com/bobg/tredd"
 	"github.com/chain/txvm/crypto/ed25519"
 	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/bc"
 	"github.com/chain/txvm/protocol/txvm"
-	"github.com/coreos/bbolt"
 )
 
 func serve(args []string) {
@@ -62,7 +62,7 @@ func serve(args []string) {
 
 	prv := ed25519.PrivateKey(prvbuf[:])
 
-	db, err := bbolt.Open(*dbFile, 0600, nil)
+	db, err := openDB(ctx, *dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,26 +81,15 @@ func serve(args []string) {
 	s.submitter = submitter(submitURL)
 
 	var transferIDs [][]byte
-	err = db.View(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte("root"))
-		if root == nil {
-			return nil
-		}
-		recordsBucket := root.Bucket([]byte("records"))
-		if recordsBucket == nil {
-			return nil
-		}
-		return recordsBucket.ForEach(func(transferID, _ []byte) error {
-			transferIDs = append(transferIDs, transferID)
-			return nil
-		})
+	err = sqlutil.ForQueryRows(ctx, db, "SELECT transfer_id FROM transfer_records", func(transferID []byte) {
+		transferIDs = append(transferIDs, transferID)
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, transferID := range transferIDs {
 		log.Printf("queueing claim-payment callback for transfer %x", transferID)
-		err = s.queueClaimPayment(transferID)
+		err = s.queueClaimPayment(ctx, transferID)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -122,8 +111,8 @@ func serve(args []string) {
 }
 
 type server struct {
-	db        *bbolt.DB // transfer records and blockchain info
-	dir       string    // content
+	db        *sql.DB // transfer records and blockchain info
+	dir       string  // content
 	seller    ed25519.PublicKey
 	o         *observer
 	signer    tredd.Signer
@@ -271,7 +260,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	rec.CipherRoot = cipherRoot
 
-	err = s.storeRecord(rec)
+	err = s.storeRecord(req.Context(), rec)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "storing transfer record: %s", err)
 		return
@@ -305,7 +294,8 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rec, err := s.getRecord(transferID)
+	ctx := req.Context()
+	rec, err := s.getRecord(ctx, transferID)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "finding transfer record: %s", err)
 		return
@@ -323,7 +313,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 	now := time.Now()
 
-	prog, err := tredd.RevealKey(req.Context(), paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
+	prog, err := tredd.RevealKey(ctx, paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
@@ -340,7 +330,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	rec.Buyer = parsed.Buyer
 	rec.OutputID = parsed.OutputID
 
-	err = s.storeRecord(rec)
+	err = s.storeRecord(ctx, rec)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "updating transfer record")
 		return
@@ -352,7 +342,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	s.queueClaimPaymentHelper(rec)
+	s.queueClaimPaymentHelper(ctx, rec)
 
 	log.Printf("transfer %x: revealing key", transferID)
 
@@ -364,142 +354,52 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) getRecord(transferID []byte) (*serverRecord, error) {
+func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecord, error) {
 	var rec serverRecord
 	copy(rec.transferID[:], transferID)
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		root := tx.Bucket([]byte("root"))
-		if root == nil {
-			return errors.New("no root bucket")
-		}
-		recordsBucket := root.Bucket([]byte("records"))
-		if recordsBucket == nil {
-			return errors.New("no records bucket")
-		}
-		bu := recordsBucket.Bucket(transferID)
-		if bu == nil {
-			return fmt.Errorf("no record bucket %x", transferID)
-		}
-		rec.Key = bu.Get([]byte("key"))
-		rec.ClearRoot = bu.Get([]byte("clearRoot"))
-		rec.CipherRoot = bu.Get([]byte("cipherRoot"))
-		rec.AssetID = bu.Get([]byte("assetID"))
 
-		var n int
-		rec.Amount, n = binary.Varint(bu.Get([]byte("amount")))
-		if n < 1 {
-			return fmt.Errorf("cannot parse amount in record %x", transferID)
-		}
-		revealDeadlineMS, n := binary.Uvarint(bu.Get([]byte("revealDeadlineMS")))
-		if n < 1 {
-			return fmt.Errorf("cannot parse reveal deadline in record %x", transferID)
-		}
-		rec.RevealDeadline = bc.FromMillis(revealDeadlineMS)
-		refundDeadlineMS, n := binary.Uvarint(bu.Get([]byte("refundDeadlineMS")))
-		if n < 1 {
-			return fmt.Errorf("cannot parse refund deadline in record %x", transferID)
-		}
-		rec.RefundDeadline = bc.FromMillis(refundDeadlineMS)
-		return nil
-	})
-	return &rec, err
+	const q = `
+		SELECT key, output_id, clear_root, cipher_root, asset_id, amount, anchor1, anchor2, reveal_deadline_ms, refund_deadline_ms, buyer, seller
+			FROM transfer_records
+			WHERE transfer_id = $1
+	`
+
+	var (
+		revealDeadlineMS, refundDeadlineMS uint64
+		buyer, seller                      []byte
+	)
+	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.OutputID, &rec.ClearRoot, &rec.CipherRoot, &rec.AssetID, &rec.Amount, &rec.Anchor1, &rec.Anchor2, &revealDeadlineMS, &refundDeadlineMS, &buyer, &seller)
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
+	}
+	rec.Buyer = ed25519.PublicKey(buyer)
+	rec.Seller = ed25519.PublicKey(seller)
+	rec.RevealDeadline = bc.FromMillis(revealDeadlineMS)
+	rec.RefundDeadline = bc.FromMillis(refundDeadlineMS)
+	return &rec, nil
 }
 
-func (s *server) storeRecord(rec *serverRecord) error {
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		root, err := tx.CreateBucketIfNotExists([]byte("root"))
-		if err != nil {
-			return errors.Wrap(err, "getting/creating root bucket")
-		}
-		records, err := root.CreateBucketIfNotExists([]byte("records"))
-		if err != nil {
-			return errors.Wrap(err, "getting/creating records bucket")
-		}
-		bu, err := records.CreateBucketIfNotExists(rec.transferID[:])
-		if err != nil {
-			return errors.Wrapf(err, "creating record bucket %x", rec.transferID[:])
-		}
-
-		var amountBuf [binary.MaxVarintLen64]byte
-		m := binary.PutVarint(amountBuf[:], rec.Amount)
-		err = bu.Put([]byte("amount"), amountBuf[:m])
-		if err != nil {
-			return errors.Wrap(err, "storing amount")
-		}
-
-		err = bu.Put([]byte("assetID"), rec.AssetID)
-		if err != nil {
-			return errors.Wrap(err, "storing assetID")
-		}
-
-		err = bu.Put([]byte("anchor1"), rec.Anchor1)
-		if err != nil {
-			return errors.Wrap(err, "storing anchor1")
-		}
-
-		err = bu.Put([]byte("anchor2"), rec.Anchor2)
-		if err != nil {
-			return errors.Wrap(err, "storing anchor2")
-		}
-
-		err = bu.Put([]byte("clearRoot"), rec.ClearRoot)
-		if err != nil {
-			return errors.Wrap(err, "storing clearRoot")
-		}
-
-		err = bu.Put([]byte("cipherRoot"), rec.CipherRoot)
-		if err != nil {
-			return errors.Wrap(err, "storing cipherRoot")
-		}
-
-		var revealDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(revealDeadlineMSBuf[:], bc.Millis(rec.RevealDeadline))
-		err = bu.Put([]byte("revealDeadlineMS"), revealDeadlineMSBuf[:m])
-		if err != nil {
-			return errors.Wrap(err, "storing reveal deadline")
-		}
-
-		var refundDeadlineMSBuf [binary.MaxVarintLen64]byte
-		m = binary.PutUvarint(refundDeadlineMSBuf[:], bc.Millis(rec.RefundDeadline))
-		err = bu.Put([]byte("refundDeadlineMS"), refundDeadlineMSBuf[:m])
-		if err != nil {
-			return errors.Wrap(err, "storing refund deadline")
-		}
-
-		err = bu.Put([]byte("buyer"), rec.Buyer)
-		if err != nil {
-			return errors.Wrap(err, "storing buyer")
-		}
-
-		err = bu.Put([]byte("seller"), rec.Seller)
-		if err != nil {
-			return errors.Wrap(err, "storing seller")
-		}
-
-		err = bu.Put([]byte("key"), rec.Key)
-		if err != nil {
-			return errors.Wrap(err, "storing key")
-		}
-
-		err = bu.Put([]byte("outputID"), rec.OutputID)
-		if err != nil {
-			return errors.Wrap(err, "storing outputID")
-		}
-
-		return nil
-	})
+func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
+	const q = `
+		INSERT OR REPLACE INTO transfer_records
+			(transfer_id, key, output_id, clear_root, cipher_root, asset_id, amount, anchor1, anchor2, reveal_deadline_ms, refund_deadline_ms, buyer, seller)
+		VALUES
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`
+	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.OutputID, rec.ClearRoot, rec.CipherRoot, rec.AssetID, rec.Amount, rec.Anchor1, rec.Anchor2, bc.Millis(rec.RevealDeadline), bc.Millis(rec.RefundDeadline), []byte(rec.Buyer), []byte(rec.Seller))
+	return err
 }
 
-func (s *server) queueClaimPayment(transferID []byte) error {
-	rec, err := s.getRecord(transferID)
+func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error {
+	rec, err := s.getRecord(ctx, transferID)
 	if err != nil {
 		return err
 	}
-	s.queueClaimPaymentHelper(rec)
+	s.queueClaimPaymentHelper(ctx, rec)
 	return nil
 }
 
-func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
+func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord) {
 	s.o.enqueue(rec.RefundDeadline, func() {
 		redeem := &tredd.Redeem{
 			RefundDeadline: rec.RefundDeadline,
@@ -525,17 +425,7 @@ func (s *server) queueClaimPaymentHelper(rec *serverRecord) {
 		if err != nil {
 			log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
 		}
-		err = s.db.Update(func(tx *bbolt.Tx) error {
-			root := tx.Bucket([]byte("root"))
-			if root == nil {
-				return errors.New("root bucket not found")
-			}
-			records := root.Bucket([]byte("records"))
-			if records == nil {
-				return errors.New("records bucket not found")
-			}
-			return records.DeleteBucket(rec.transferID[:])
-		})
+		_, err = s.db.ExecContext(ctx, "DELETE FROM transfer_records WHERE transfer_id = $1", rec.transferID[:])
 		if err != nil {
 			log.Printf("WARNING: could not delete transfer record %x: %s", rec.transferID[:], err)
 		}

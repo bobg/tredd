@@ -32,12 +32,12 @@ type testReservation struct {
 	change   int64
 }
 
-func (r *testReservation) UTXOs() []UTXO {
-	return r.utxos
+func (r *testReservation) UTXOs(context.Context) ([]UTXO, error) {
+	return r.utxos, nil
 }
 
-func (r *testReservation) Change() int64 {
-	return r.change
+func (r *testReservation) Change(context.Context) (int64, error) {
+	return r.change, nil
 }
 
 func (r *testReservation) Cancel(context.Context) error {

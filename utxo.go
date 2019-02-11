@@ -22,7 +22,7 @@ type Reserver interface {
 
 // Reservation is the result of reserving some UTXOs with a Reserver.
 type Reservation interface {
-	UTXOs() []UTXO
-	Change() int64
+	UTXOs(context.Context) ([]UTXO, error)
+	Change(context.Context) (int64, error)
 	Cancel(context.Context) error
 }
