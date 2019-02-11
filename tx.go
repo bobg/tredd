@@ -69,12 +69,8 @@ func ProposePayment(
 		anchor = txvm.VMHash("Split2", anchor[:])
 
 		b := new(txvmutil.Builder)
-		standard.SpendMultisig(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2[:])
+		standard.Snapshot(b, 1, []ed25519.PublicKey{buyer}, reservation.Change(), assetID, anchor[:], standard.PayToMultisigSeed2[:])
 		snapshot := b.Build()
-
-		// This lops off the "input" and "call" opcodes at the end of standard.SpendMultisig.
-		// TODO: refactor SpendMultisig to make the snapshot tuple available separately.
-		snapshot = snapshot[:len(snapshot)-2]
 		outputID := txvm.VMHash("SnapshotID", snapshot)
 
 		fmt.Fprintf(buf, "3 eq verify\n")
