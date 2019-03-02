@@ -25,3 +25,5 @@ see
 For the motivation behind Tredd, see [Why Tredd](Why.md).
 
 For step-by-step instructions for running the Tredd server and client, see [Trying Tredd](Try.md).
+
+There is also [a Medium post describing this project](https://medium.com/@bob.glickstein/tredd-trustless-escrow-for-digital-data-1ce5a0018e95) and [an appendix](https://medium.com/@bob.glickstein/tredd-appendix-frontier-sets-84e60bd19d59).
