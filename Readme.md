@@ -11,7 +11,7 @@ and includes a demonstration client and server
 
 A buyer sends a request for some content to a seller.
 The seller responds with an encrypted copy of the content.
-The seller sends a partial blockchain transaction to the seller,
+The buyer sends a partial blockchain transaction to the seller,
 containing payment for the content.
 The seller completes the partial transaction and publishes it to the blockchain.
 The completed transaction reveals the decryption key,
