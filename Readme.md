@@ -20,10 +20,10 @@ The buyer has a way to claim a refund if the key fails to produce the promised c
 
 For more information,
 see
-[this detailed explanation of Tredd’s design and operation](https://docs.google.com/document/d/1eC36V8fX9AVXJDNx1qiCksAj03C9DOp9YCWzIC2wKJE/edit?usp=sharing).
+[this detailed explanation of Tredd’s design and operation](https://medium.com/@bob.glickstein/tredd-trustless-escrow-for-digital-data-1ce5a0018e95).
+
+(There is also [an appendix](https://medium.com/@bob.glickstein/tredd-appendix-frontier-sets-84e60bd19d59).)
 
 For the motivation behind Tredd, see [Why Tredd](Why.md).
 
 For step-by-step instructions for running the Tredd server and client, see [Trying Tredd](Try.md).
-
-There is also [a Medium post describing this project](https://medium.com/@bob.glickstein/tredd-trustless-escrow-for-digital-data-1ce5a0018e95) and [an appendix](https://medium.com/@bob.glickstein/tredd-appendix-frontier-sets-84e60bd19d59).
