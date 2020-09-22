@@ -3,13 +3,13 @@
 First, install the tredd binary.
 
 ```sh
-$ go install github.com/bobg/tredd/cmd/tredd
+$ go get github.com/bobg/tredd/...
 ```
 
 Install the binaries from the github.com/chain/txvm package:
 
 ```sh
-$ go install github.com/chain/txvm/cmd/...
+$ go get github.com/chain/txvm/cmd/...
 ```
 
 Download and install txvmbcd, a minimal TxVM blockchain server:
