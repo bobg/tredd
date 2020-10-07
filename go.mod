@@ -1,5 +1,7 @@
 module github.com/bobg/tredd
 
+go 1.14
+
 require (
 	github.com/bobg/merkle v0.0.0-20181118194127-c753c2e4570c
 	github.com/bobg/quiescence v0.0.0-20181201134758-b3d39fb72610
