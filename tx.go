@@ -24,8 +24,7 @@ func ProposePayment(
 	buyer *bind.TransactOpts, // see bind.NewTransactor
 	seller common.Address,
 	amount int64,
-	tokenType []byte, // TODO: how to specify the token type?
-	collateral int64,
+	tokenType string, // TODO: how to specify the token type?
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
 ) (*types.Receipt, error) {
@@ -103,7 +102,7 @@ func ClaimRefund(
 	index int64,
 	cipherChunk []byte,
 	clearHash [32]byte,
-	cipherProof, clearProof []byte, // TODO: determine the right representation for merkle proofs in Solidity
+	cipherProof, clearProof merkle.Proof,
 ) (*types.Receipt, error) {
 	con, err := NewTredd(contractAddr, client)
 	if err != nil {
@@ -112,7 +111,9 @@ func ClaimRefund(
 
 	bigIndex := big.NewInt(index)
 
-	tx, err := con.Refund(buyer, bigIndex, cipherChunk, clearHash, cipherProof, clearProof)
+	var renderedCipherProof, renderedClearProof []byte // TODO: determine the right representation for merkle proofs in Solidity
+
+	tx, err := con.Refund(buyer, bigIndex, cipherChunk, clearHash, renderedCipherProof, renderedClearProof)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Refund")
 	}
@@ -132,4 +133,25 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
 	}
 	fmt.Fprintln(w, "}")
+}
+
+// ParseResult holds the values parsed from a Tredd contract.
+// If the transaction is complete
+// (i.e., the seller has added the "reveal-key" call),
+// all of the fields will be filled in.
+// If the transaction is partial, some fields will be uninitialized.
+type ParseResult struct {
+	ContractAddr common.Address
+
+	// Amount is the amount of the buyer's payment (not including the seller's collateral).
+	Amount    int64
+	TokenType string
+
+	ClearRoot      [32]byte
+	CipherRoot     [32]byte
+	RevealDeadline time.Time
+	RefundDeadline time.Time
+	Buyer          common.Address
+	Seller         common.Address
+	Key            [32]byte
 }

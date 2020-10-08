@@ -83,8 +83,8 @@ func (t *testChunkStore) Add(chunk []byte) error {
 	return nil
 }
 
-func (t *testChunkStore) Get(index uint64) ([]byte, error) {
-	if index >= uint64(len(t.chunks)) {
+func (t *testChunkStore) Get(index int64) ([]byte, error) {
+	if index >= int64(len(t.chunks)) {
 		return nil, fmt.Errorf("index %d >= len %d", index, len(t.chunks))
 	}
 	return t.chunks[index], nil

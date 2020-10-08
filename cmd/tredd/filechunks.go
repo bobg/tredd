@@ -41,14 +41,14 @@ func (s *fileChunkStore) Add(bits []byte) error {
 	return nil
 }
 
-func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
+func (s *fileChunkStore) Get(index int64) ([]byte, error) {
 	f, err := os.Open(s.filename)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	_, err = f.Seek(int64(index)*s.chunksize, os.SEEK_SET) // TODO: range check
+	_, err = f.Seek(index*s.chunksize, os.SEEK_SET) // TODO: range check
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	n, err := io.ReadFull(f, result)
 	if err == io.ErrUnexpectedEOF {
 		// Partial chunk allowed only at EOF.
-		if int64(index)*s.chunksize+int64(n) == s.size {
+		if index*s.chunksize+int64(n) == s.size {
 			return result[:n], nil
 		}
 	}

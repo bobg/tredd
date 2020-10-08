@@ -21,9 +21,9 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 		clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
 	)
 
-	for index := uint64(0); ; index++ {
-		m := binary.PutUvarint(clearHashWithPrefix[:], index)
-		binary.PutUvarint(chunk[:], index)
+	for index := int64(0); ; index++ {
+		m := binary.PutUvarint(clearHashWithPrefix[:], uint64(index))
+		binary.PutUvarint(chunk[:], uint64(index))
 
 		n, err := io.ReadFull(r, chunk[m:m+ChunkSize])
 		if err == io.EOF {

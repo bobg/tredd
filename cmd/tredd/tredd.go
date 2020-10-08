@@ -90,7 +90,9 @@ func addFile(file, dir, contentType string) error {
 		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunk[:n])
 		tree.Add(clearHashWithPrefix[:m+32])
 	}
-	clearHash := tree.Root()
+
+	var clearHash [32]byte
+	copy(clearHash[:], tree.Root())
 
 	p, destName := clearHashPath(dir, clearHash)
 
@@ -128,9 +130,9 @@ func addFile(file, dir, contentType string) error {
 	return nil
 }
 
-func clearHashPath(root string, clearHash []byte) (dir, filename string) {
+func clearHashPath(root string, clearHash [32]byte) (dir, filename string) {
 	dir = path.Join(root, fmt.Sprintf("%x/%x", clearHash[0:1], clearHash[1:2]))
-	return dir, hex.EncodeToString(clearHash)
+	return dir, hex.EncodeToString(clearHash[:])
 }
 
 func decrypt(args []string) {
@@ -145,7 +147,7 @@ func decrypt(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for index := uint64(0); ; index++ {
+	for index := int64(0); ; index++ {
 		var buf [tredd.ChunkSize]byte
 		n, err := io.ReadFull(os.Stdin, buf[:])
 		if err == io.EOF {

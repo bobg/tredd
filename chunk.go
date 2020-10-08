@@ -17,7 +17,7 @@ type ChunkStore interface {
 	Add([]byte) error
 
 	// Get gets the chunk with the given index (0-based).
-	Get(uint64) ([]byte, error)
+	Get(int64) ([]byte, error)
 
 	// Len tells the number of chunks in the store.
 	Len() (int64, error)
@@ -25,7 +25,7 @@ type ChunkStore interface {
 
 var errMissingChunk = errors.New("missing chunk")
 
-func Crypt(key [32]byte, chunk []byte, index uint64) {
+func Crypt(key [32]byte, chunk []byte, index int64) {
 	var (
 		hasher = sha256.New()
 		subkey [32]byte

@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -19,11 +18,12 @@ import (
 	"time"
 
 	"github.com/bobg/sqlutil"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/pkg/errors"
+
 	"github.com/bobg/tredd"
-	"github.com/chain/txvm/crypto/ed25519"
-	"github.com/chain/txvm/errors"
-	"github.com/chain/txvm/protocol/bc"
-	"github.com/chain/txvm/protocol/txvm"
 )
 
 func serve(args []string) {
@@ -32,11 +32,10 @@ func serve(args []string) {
 	fs := flag.NewFlagSet("", flag.PanicOnError)
 
 	var (
-		addr    = fs.String("addr", "localhost:20544", "server listen address")
-		dir     = fs.String("dir", ".", "root of content tree")
-		dbFile  = fs.String("db", "", "file containing server-state db")
-		prvFile = fs.String("prv", "", "file containing server private key")
-		url     = fs.String("url", "", "URL of blockchain server")
+		addr   = fs.String("addr", "localhost:20544", "server listen address")
+		dir    = fs.String("dir", ".", "root of content tree")
+		dbFile = fs.String("db", "", "file containing server-state db")
+		ethURL = fs.String("ethurl", "", "URL of blockchain server")
 	)
 
 	err := fs.Parse(args)
@@ -44,41 +43,20 @@ func serve(args []string) {
 		log.Fatal(err)
 	}
 
-	submitURL := *url + "/submit"
-	getURL := *url + "/get"
-
-	f, err := os.Open(*prvFile)
-	if err != nil {
-		log.Fatalf("opening prv file %s: %s", *prvFile, err)
-	}
-	defer f.Close()
-
-	var prvbuf [ed25519.PrivateKeySize]byte
-	_, err = io.ReadFull(f, prvbuf[:])
-	if err != nil {
-		log.Fatalf("reading prv file %s: %s", *prvFile, err)
-	}
-	f.Close()
-
-	prv := ed25519.PrivateKey(prvbuf[:])
-
 	db, err := openDB(ctx, *dbFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	seller := prv.Public().(ed25519.PublicKey)
+	var seller *bind.TransactOpts // TODO: set this from a keyfile and passphrase (as in ninex)
+
 	s := &server{
 		db:     db,
 		dir:    *dir,
 		seller: seller,
-		o:      newObserver(db, seller, getURL),
+		ethURL: *ethURL,
 	}
-	s.signer = func(msg []byte) ([]byte, error) {
-		return ed25519.Sign(prv, msg), nil
-	}
-	s.submitter = submitter(submitURL)
 
 	var transferIDs [][]byte
 	err = sqlutil.ForQueryRows(ctx, db, "SELECT transfer_id FROM transfer_records", func(transferID []byte) {
@@ -95,9 +73,6 @@ func serve(args []string) {
 		}
 	}
 
-	log.Print("starting blockchain observer")
-	go s.o.run(ctx)
-
 	listener, err := net.Listen("tcp", *addr)
 	if err != nil {
 		log.Fatal(err)
@@ -106,17 +81,15 @@ func serve(args []string) {
 	log.Printf("listening on %s", listener.Addr())
 
 	http.HandleFunc("/request", s.serve)
-	http.HandleFunc("/propose-payment", s.revealKey)
+	// http.HandleFunc("/propose-payment", s.revealKey)
 	http.Serve(listener, nil)
 }
 
 type server struct {
-	db        *sql.DB // transfer records and blockchain info
-	dir       string  // content
-	seller    ed25519.PublicKey
-	o         *observer
-	signer    tredd.Signer
-	submitter func(prog []byte, version, runlimit int64) error
+	db     *sql.DB // transfer records and blockchain info
+	dir    string  // content
+	seller *bind.TransactOpts
+	ethURL string
 }
 
 type serverRecord struct {
@@ -133,12 +106,13 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	var (
 		clearRootStr      = req.FormValue("clearroot")
 		amountStr         = req.FormValue("amount")
-		assetIDStr        = req.FormValue("assetid")
+		tokenType         = req.FormValue("token")
 		revealDeadlineStr = req.FormValue("revealdeadline")
 		refundDeadlineStr = req.FormValue("refunddeadline")
 	)
 
-	clearRoot, err := hex.DecodeString(clearRootStr)
+	var clearRoot [32]byte
+	_, err := hex.Decode(clearRoot[:], []byte(clearRootStr))
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "decoding clear root: %s", err)
 		return
@@ -171,13 +145,8 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusBadRequest, "non-positive amount %d", amount)
 		return
 	}
-	assetID, err := hex.DecodeString(assetIDStr)
-	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "parsing asset ID: %s", err)
-		return
-	}
 
-	err = s.checkPrice(amount, assetID, clearRoot)
+	err = s.checkPrice(amount, tokenType, clearRoot)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "proposed payment rejected: %s", err)
 		return
@@ -188,7 +157,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusBadRequest, "parsing reveal deadline: %s", err)
 		return
 	}
-	revealDeadline := bc.FromMillis(revealDeadlineMS)
+	revealDeadline := FromMillis(revealDeadlineMS)
 
 	if time.Until(revealDeadline) < minRevealDur {
 		httpErrf(w, http.StatusBadRequest, "reveal deadline too soon: %s, require %s", time.Until(revealDeadline), minRevealDur)
@@ -200,10 +169,10 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusBadRequest, "parsing refund deadline: %s", err)
 		return
 	}
-	refundDeadline := bc.FromMillis(refundDeadlineMS)
+	refundDeadline := FromMillis(refundDeadlineMS)
 
 	if refundDeadline.Sub(revealDeadline) > maxRefundDur {
-		httpErrf(w, http.StatusBadRequest, "refund deadline too later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)
+		httpErrf(w, http.StatusBadRequest, "refund deadline too much later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)
 		return
 	}
 
@@ -217,12 +186,12 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	rec := &serverRecord{
 		ParseResult: tredd.ParseResult{
 			Amount:         amount,
-			AssetID:        assetID,
+			TokenType:      tokenType,
 			ClearRoot:      clearRoot,
 			RevealDeadline: revealDeadline,
 			RefundDeadline: refundDeadline,
-			Seller:         s.seller,
-			Key:            key[:],
+			Seller:         s.seller.From, // TODO: check this is right
+			Key:            key,
 		},
 	}
 
@@ -232,7 +201,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	log.Printf("new transfer %x, clearRoot %x, payment %d/%x, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, assetID, revealDeadline, refundDeadline, key[:])
+	log.Printf("new transfer %x, clearRoot %x, payment %d/%s, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, tokenType, revealDeadline, refundDeadline, key[:])
 
 	w.Header().Set("X-Tredd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
@@ -258,7 +227,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rec.CipherRoot = cipherRoot
+	copy(rec.CipherRoot[:], cipherRoot)
 
 	err = s.storeRecord(req.Context(), rec)
 	if err != nil {
@@ -277,16 +246,13 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 		httpErrf(w, http.StatusInternalServerError, "writing response: %s", err)
 		return
 	}
+
+	// TODO: queue a blockchain watcher that does revealKey when a Tredd contract with this cipher root shows up
 }
 
+// TODO: this is no longer an HTTP entrypoint; it's a callback based on a blockchain event
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 	transferIDStr := req.Header.Get("X-Tredd-Transfer-Id")
-
-	paymentProposal, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "reading payment proposal: %s", err)
-		return
-	}
 
 	transferID, err := hex.DecodeString(transferIDStr)
 	if err != nil {
@@ -301,34 +267,24 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var (
-		clearRoot  [32]byte
-		cipherRoot [32]byte
-		key        [32]byte
-		assetID    = bc.HashFromBytes(rec.AssetID)
-	)
-	copy(clearRoot[:], rec.ClearRoot)
-	copy(cipherRoot[:], rec.CipherRoot)
-	copy(key[:], rec.Key)
+	client, err := ethclient.Dial(s.ethURL)
+	if err != nil {
+		httpErrf(w, http.StatusInternalServerError, "contacting Ethereum server: %s", err)
+		return
+	}
 
-	now := time.Now()
+	var contractAddr common.Address // TODO: populate this (in the HTTP request?)
 
-	prog, err := tredd.RevealKey(ctx, paymentProposal, s.seller, key, rec.Amount, assetID, s.o.r, s.signer, clearRoot, cipherRoot, now, rec.RevealDeadline, rec.RefundDeadline)
+	receipt, err := tredd.RevealKey(ctx, client, s.seller, contractAddr, rec.Key, rec.ClearRoot, rec.CipherRoot, rec.RevealDeadline, rec.RefundDeadline)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return
 	}
 
-	parsed := tredd.ParseLog(prog)
-	if parsed == nil {
-		httpErrf(w, http.StatusInternalServerError, "parsing tx log")
-		return
-	}
+	log.Printf("revealed key in transaction %x", receipt.TxHash[:])
 
-	rec.Anchor1 = parsed.Anchor1
-	rec.Anchor2 = parsed.Anchor2
-	rec.Buyer = parsed.Buyer
-	rec.OutputID = parsed.OutputID
+	// TODO: parse the buyer out of the contract, if in fact we need it for storeRecord
+	// rec.Buyer = parsed.Buyer
 
 	err = s.storeRecord(ctx, rec)
 	if err != nil {
@@ -336,21 +292,10 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	vm, err := txvm.Validate(prog, 3, math.MaxInt64)
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "computing runlimit: %s", err)
-		return
-	}
-
 	s.queueClaimPaymentHelper(ctx, rec)
 
 	log.Printf("transfer %x: revealing key", transferID)
 
-	err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "submitting reveal-key transaction: %s", err)
-		return
-	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -359,34 +304,31 @@ func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecor
 	copy(rec.transferID[:], transferID)
 
 	const q = `
-		SELECT key, output_id, clear_root, cipher_root, asset_id, amount, anchor1, anchor2, reveal_deadline_ms, refund_deadline_ms, buyer, seller
+		SELECT key, contract_addr, clear_root, cipher_root, token_type, amount, reveal_deadline_ms, refund_deadline_ms, buyer, seller
 			FROM transfer_records
 			WHERE transfer_id = $1
 	`
 
 	var (
 		revealDeadlineMS, refundDeadlineMS uint64
-		buyer, seller                      []byte
 	)
-	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.OutputID, &rec.ClearRoot, &rec.CipherRoot, &rec.AssetID, &rec.Amount, &rec.Anchor1, &rec.Anchor2, &revealDeadlineMS, &refundDeadlineMS, &buyer, &seller)
+	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.ContractAddr, &rec.ClearRoot, &rec.CipherRoot, &rec.TokenType, &rec.Amount, &revealDeadlineMS, &refundDeadlineMS, &rec.Buyer, &rec.Seller)
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
 	}
-	rec.Buyer = ed25519.PublicKey(buyer)
-	rec.Seller = ed25519.PublicKey(seller)
-	rec.RevealDeadline = bc.FromMillis(revealDeadlineMS)
-	rec.RefundDeadline = bc.FromMillis(refundDeadlineMS)
+	rec.RevealDeadline = FromMillis(revealDeadlineMS)
+	rec.RefundDeadline = FromMillis(refundDeadlineMS)
 	return &rec, nil
 }
 
 func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 	const q = `
 		INSERT OR REPLACE INTO transfer_records
-			(transfer_id, key, output_id, clear_root, cipher_root, asset_id, amount, anchor1, anchor2, reveal_deadline_ms, refund_deadline_ms, buyer, seller)
+			(transfer_id, key, contract_addr, clear_root, cipher_root, token_type, amount, reveal_deadline_ms, refund_deadline_ms, buyer, seller)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
-	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.OutputID, rec.ClearRoot, rec.CipherRoot, rec.AssetID, rec.Amount, rec.Anchor1, rec.Anchor2, bc.Millis(rec.RevealDeadline), bc.Millis(rec.RefundDeadline), []byte(rec.Buyer), []byte(rec.Seller))
+	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.ContractAddr, rec.ClearRoot, rec.CipherRoot, rec.TokenType, rec.Amount, Millis(rec.RevealDeadline), Millis(rec.RefundDeadline), rec.Buyer, rec.Seller)
 	return err
 }
 
@@ -400,39 +342,11 @@ func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error
 }
 
 func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord) {
-	s.o.enqueue(rec.RefundDeadline, func() {
-		redeem := &tredd.Redeem{
-			RefundDeadline: rec.RefundDeadline,
-			Buyer:          rec.Buyer,
-			Seller:         s.seller,
-			Amount:         rec.Amount,
-			AssetID:        bc.HashFromBytes(rec.AssetID),
-		}
-		copy(redeem.Anchor2[:], rec.Anchor2)
-		copy(redeem.CipherRoot[:], rec.CipherRoot)
-		copy(redeem.ClearRoot[:], rec.ClearRoot)
-		copy(redeem.Key[:], rec.Key)
-
-		prog, err := tredd.ClaimPayment(redeem)
-		if err != nil {
-			log.Fatalf("constructing claim-payment transaction: %s", err)
-		}
-		vm, err := txvm.Validate(prog, 3, math.MaxInt64)
-		if err != nil {
-			log.Fatalf("computing runlimit for claim-payment transaction: %s", err)
-		}
-		err = s.submitter(prog, 3, math.MaxInt64-vm.Runlimit())
-		if err != nil {
-			log.Fatalf("submitting claim-payment transaction: %s", err) // xxx this one should prob have a retry loop
-		}
-		_, err = s.db.ExecContext(ctx, "DELETE FROM transfer_records WHERE transfer_id = $1", rec.transferID[:])
-		if err != nil {
-			log.Printf("WARNING: could not delete transfer record %x: %s", rec.transferID[:], err)
-		}
-	})
+	// TODO: set a timer that does tredd.ClaimPayment after the refund deadline
+	// It should also delete the row from transfer_records.
 }
 
-func (s *server) checkPrice(amount int64, assetID []byte, clearRoot []byte) error {
+func (s *server) checkPrice(amount int64, tokenType string, clearRoot [32]byte) error {
 	if amount > 0 { // TODO: per-content pricing!
 		return nil
 	}
