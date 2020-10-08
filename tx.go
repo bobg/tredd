@@ -109,15 +109,25 @@ func ClaimRefund(
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
 
-	bigIndex := big.NewInt(index)
+	var (
+		bigIndex         = big.NewInt(index)
+		treddCipherProof = toTreddProof(cipherProof)
+		treddClearProof  = toTreddProof(clearProof)
+	)
 
-	var renderedCipherProof, renderedClearProof []byte // TODO: determine the right representation for merkle proofs in Solidity
-
-	tx, err := con.Refund(buyer, bigIndex, cipherChunk, clearHash, renderedCipherProof, renderedClearProof)
+	tx, err := con.Refund(buyer, bigIndex, cipherChunk, clearHash, treddCipherProof, treddClearProof)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Refund")
 	}
 	return bind.WaitMined(ctx, client, tx)
+}
+
+func toTreddProof(proof merkle.Proof) []TreddProofStep {
+	result := make([]TreddProofStep, 0, len(proof))
+	for _, step := range proof {
+		result = append(result, TreddProofStep{H: step.H, Left: step.Left})
+	}
+	return result
 }
 
 func renderProof(w io.Writer, proof merkle.Proof) {

@@ -1,4 +1,5 @@
 pragma solidity ^0.7.2; // TODO: determine the best (lowest?) version number that works here.
+pragma experimental ABIEncoderV2; // This is needed to compile the ProofStep[] params of refund().
 
 // A Tredd contract represents a single exchange of payment for data.
 // It is deployed on-chain by the buyer,
@@ -97,6 +98,11 @@ contract Tredd {
     emit evDecryptionKey(decryptionKey);
   }
 
+  struct ProofStep {
+    bytes h;
+    bool left;
+  }
+
   // The buyer claims a refund by proving a chunk is wrong.
   // Args:
   //   - index: index of the chunk being proven wrong
@@ -107,8 +113,8 @@ contract Tredd {
   function refund(uint index,
                   bytes memory cipherChunk,
                   bytes32 clearHash,
-                  bytes memory cipherProof, // How to express a Merkle proof? (It's not "bytes.")
-                  bytes memory clearProof) public {
+                  ProofStep[] memory cipherProof,
+                  ProofStep[] memory clearProof) public {
     require (msg.sender == mBuyer);
     require (block.timestamp < mRefundDeadline);
     require (mRevealed);
