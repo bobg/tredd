@@ -8,9 +8,9 @@ require (
 	github.com/bobg/sqlutil v0.0.0-20180406050615-9797d815c1b0
 	github.com/chain/txvm v0.0.0-20181129015509-e6c9a187c68e
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/golang/protobuf v1.2.0
+	github.com/ethereum/go-ethereum v1.9.22
+	github.com/golang/protobuf v1.4.2
 	github.com/mattn/go-sqlite3 v1.10.0
 	github.com/miscreant/miscreant v0.3.0 // indirect
-	golang.org/x/crypto v0.0.0-20181127143415-eb0de9b17e85 // indirect
-	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
+	github.com/pkg/errors v0.9.1
 )

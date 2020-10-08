@@ -24,8 +24,8 @@ contract Tredd {
   uint public mAmount;
 
   // The type of the token the buyer proposes to pay with.
-  // TODO: How to specify the type of the desired token? Should we stick with just ETH to start with?
-  TODO public mTokenType;
+  // TODO: How to specify the type of the desired token? (It's not "bytes.") Should we stick with just ETH to start with?
+  bytes public mTokenType;
 
   // The amount of collateral that the buyer requires the seller to add
   // when revealing the decryption key.
@@ -54,14 +54,14 @@ contract Tredd {
   bool public mRevealed;
 
   // Constructor.
-  function Tredd(address seller,
-                 uint amount,
-                 TODO tokenType,
-                 uint collateral,
-                 bytes32 clearRoot,
-                 bytes32 cipherRoot,
-                 uint revealDeadline,
-                 uint refundDeadline) {
+  constructor(address seller,
+              uint amount,
+              bytes memory tokenType,
+              uint collateral,
+              bytes32 clearRoot,
+              bytes32 cipherRoot,
+              uint revealDeadline,
+              uint refundDeadline) {
     mBuyer = msg.sender;
     mSeller = seller;
     mAmount = amount;
@@ -75,8 +75,9 @@ contract Tredd {
   }
 
   // The buyer may reclaim payment if it's after the reveal deadline and no decryption key has been revealed.
-  function reclaim() {
-    require (now >= mRevealDeadline);
+  function reclaim() public {
+    require (msg.sender == mBuyer);
+    require (block.timestamp >= mRevealDeadline);
     require (!mRevealed);
     // TODO: transfer the balance in this contract to the buyer and destroy the contract.
   }
@@ -84,15 +85,16 @@ contract Tredd {
   event evDecryptionKey(bytes32 decryptionKey);
 
   // The seller reveals the decryption key.
-  function reveal(bytes32 decryptionKey) {
-    require (now < mRevealDeadline);
+  function reveal(bytes32 decryptionKey) public {
+    require (msg.sender == mSeller);
+    require (block.timestamp < mRevealDeadline);
     require (!mRevealed);
     // TODO: require the seller to add (or have already added) the requested collateral
 
     mDecryptionKey = decryptionKey;
     mRevealed = true;
 
-    evDecryptionKey(decryptionKey);
+    emit evDecryptionKey(decryptionKey);
   }
 
   // The buyer claims a refund by proving a chunk is wrong.
@@ -103,11 +105,12 @@ contract Tredd {
   //   - cipherProof: Merkle proof that cipherChunk was delivered before payment was proposed
   //   - clearProof: Merkle proof that the expected value of Hash(index || clearChunk) is in mClearRoot
   function refund(uint index,
-                  bytes cipherChunk,
+                  bytes memory cipherChunk,
                   bytes32 clearHash,
-                  TODO cipherProof, // How to express a Merkle proof?
-                  TODO clearProof) {
-    require (now < mRefundDeadline);
+                  bytes memory cipherProof, // How to express a Merkle proof? (It's not "bytes.")
+                  bytes memory clearProof) public {
+    require (msg.sender == mBuyer);
+    require (block.timestamp < mRefundDeadline);
     require (mRevealed);
 
     // TODO: implement as follows:
@@ -118,8 +121,9 @@ contract Tredd {
   }
 
   // The seller claims payment (and reclaims collateral) after the refund deadline.
-  function claimPayment() {
-    require (now >= mRefundDeadline);
+  function claimPayment() public {
+    require (msg.sender == mSeller);
+    require (block.timestamp >= mRefundDeadline);
     // TODO: transfer the balance in this contract to the seller and destroy the contract.
   }
 }
