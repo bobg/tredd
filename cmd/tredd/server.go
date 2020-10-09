@@ -38,6 +38,8 @@ func serve(args []string) {
 		ethURL = fs.String("ethurl", "", "URL of blockchain server")
 	)
 
+	keyfile, passphrase := addKeyfilePassphrase(fs)
+
 	err := fs.Parse(args)
 	if err != nil {
 		log.Fatal(err)
@@ -49,7 +51,10 @@ func serve(args []string) {
 	}
 	defer db.Close()
 
-	var seller *bind.TransactOpts // TODO: set this from a keyfile and passphrase (as in ninex)
+	seller, err := handleKeyfilePassphrase(*keyfile, *passphrase)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := &server{
 		db:     db,

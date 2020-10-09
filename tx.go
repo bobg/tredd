@@ -49,6 +49,25 @@ func ProposePayment(
 	return receipt, nil
 }
 
+// ReclaimPayment is used by the buyer to reclaim their payment
+// when no decryption key has been revealed by the reveal deadline.
+func ReclaimPayment(
+	ctx context.Context,
+	client *ethclient.Client, // see ethclient.Dial
+	buyer *bind.TransactOpts,
+	contractAddr common.Address,
+) (*types.Receipt, error) {
+	con, err := NewTredd(contractAddr, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "instantiating deployed contract")
+	}
+	tx, err := con.Reclaim(buyer)
+	if err != nil {
+		return nil, errors.Wrap(err, "invoking Reclaim")
+	}
+	return bind.WaitMined(ctx, client, tx)
+}
+
 // RevealKey updates a Tredd contract on-chain by adding the decryption key.
 // TODO: Must also supply collateral.
 func RevealKey(
