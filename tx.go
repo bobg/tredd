@@ -60,6 +60,10 @@ func ReclaimPayment(
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
+	return con.ReclaimPayment(ctx, client, buyer)
+}
+
+func (con *Tredd) ReclaimPayment(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts) (*types.Receipt, error) {
 	tx, err := con.Reclaim(buyer)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Reclaim")

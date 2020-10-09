@@ -36,8 +36,7 @@ func get(args []string) {
 		amount            = fs.Int64("amount", 0, "amount of proposed payment")
 		tokenType         = fs.String("token", "", "asset ID of proposed payment")
 		revealDeadlineDur = fs.Duration("reveal", 15*time.Minute, "time until reveal deadline, in time.ParseDuration format")
-		refundDeadlineDur = fs.Duration("refund", 30*time.Minute, "time from reveal deadline until refund deadline")
-		dbFile            = fs.String("db", "", "file containing client-state db")
+		refundDeadlineDur = fs.Duration("refund", 30*time.Minute, "time from reveal deadline until refund deadline, in time.ParseDuration format")
 		serverURL         = fs.String("server", "", "base URL of tredd server")
 		ethURL            = fs.String("ethurl", "", "base URL of Ethereum server")
 		dir               = fs.String("dir", "", "root dir for file transfers")
@@ -62,12 +61,6 @@ func get(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	db, err := openDB(ctx, *dbFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
 
 	buyer, err := handleKeyfilePassphrase(*keyfile, *passphrase)
 	if err != nil {
@@ -164,7 +157,7 @@ func get(args []string) {
 
 	case <-revealTimer.C:
 		// Deadline passed with no decryption key revealed.
-		receipt, err := tredd.ReclaimPayment(ctx, client, buyer, contractAddr)
+		receipt, err := con.ReclaimPayment(ctx, client, buyer)
 		if err != nil {
 			log.Fatal(err)
 		}

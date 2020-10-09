@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bobg/mid"
 	"github.com/bobg/sqlutil"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -85,7 +86,7 @@ func serve(args []string) {
 
 	log.Printf("listening on %s", listener.Addr())
 
-	http.HandleFunc("/request", s.serve)
+	http.Handle("/request", mid.Err(s.serve))
 	// http.HandleFunc("/propose-payment", s.revealKey)
 	http.Serve(listener, nil)
 }
@@ -107,7 +108,7 @@ const (
 	maxRefundDur = time.Hour
 )
 
-func (s *server) serve(w http.ResponseWriter, req *http.Request) {
+func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	var (
 		clearRootStr      = req.FormValue("clearroot")
 		amountStr         = req.FormValue("amount")
@@ -119,73 +120,62 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 	var clearRoot [32]byte
 	_, err := hex.Decode(clearRoot[:], []byte(clearRootStr))
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "decoding clear root: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding clear root")}
 	}
 
 	dir, filename := clearHashPath(s.dir, clearRoot)
 	f, err := os.Open(path.Join(dir, filename))
 	if os.IsNotExist(err) {
-		httpErrf(w, http.StatusNotFound, "file not found")
-		return
+		return mid.CodeErr{C: http.StatusNotFound}
 	}
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "opening %s: %s", filename, err)
-		return
+		return errors.Wrapf(err, "opening %s", filename)
 	}
 	defer f.Close()
 
 	contentType, err := ioutil.ReadFile(path.Join(dir, "content-type"))
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "getting content type: %s", err)
-		return
+		return errors.Wrap(err, "getting content type")
 	}
 
 	amount, err := strconv.ParseInt(amountStr, 10, 64)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "parsing amount: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing amount")}
 	}
 	if amount < 1 {
-		httpErrf(w, http.StatusBadRequest, "non-positive amount %d", amount)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrapf(err, "non-positive amount %d", amount)}
 	}
 
 	err = s.checkPrice(amount, tokenType, clearRoot)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "proposed payment rejected: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "proposed payment rejected")}
 	}
 
 	revealDeadlineMS, err := strconv.ParseUint(revealDeadlineStr, 10, 64)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "parsing reveal deadline: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing reveal deadline")}
+
 	}
 	revealDeadline := FromMillis(revealDeadlineMS)
 
 	if time.Until(revealDeadline) < minRevealDur {
-		httpErrf(w, http.StatusBadRequest, "reveal deadline too soon: %s, require %s", time.Until(revealDeadline), minRevealDur)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: fmt.Errorf("reveal deadline too soon: %s, require %s", time.Until(revealDeadline), minRevealDur)}
 	}
 
 	refundDeadlineMS, err := strconv.ParseUint(refundDeadlineStr, 10, 64)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "parsing refund deadline: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing refund deadline")}
 	}
 	refundDeadline := FromMillis(refundDeadlineMS)
 
 	if refundDeadline.Sub(revealDeadline) > maxRefundDur {
-		httpErrf(w, http.StatusBadRequest, "refund deadline too much later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: fmt.Errorf("refund deadline too much later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)}
 	}
 
 	var key [32]byte
 	_, err = rand.Read(key[:])
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "choosing cipher key: %s", err)
-		return
+		return errors.Wrap(err, "choosing cipher key")
 	}
 
 	rec := &serverRecord{
@@ -202,8 +192,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	_, err = rand.Read(rec.transferID[:])
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "choosing transfer ID: %s", err)
-		return
+		return errors.Wrap(err, "choosing transfer ID")
 	}
 
 	log.Printf("new transfer %x, clearRoot %x, payment %d/%s, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, tokenType, revealDeadline, refundDeadline, key[:])
@@ -213,8 +202,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	tmpfile, err := ioutil.TempFile("", "treddserve")
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "creating response tempfile: %s", err)
-		return
+		return errors.Wrap(err, "creating response tempfile")
 	}
 	tmpfilename := tmpfile.Name()
 	defer os.Remove(tmpfilename)
@@ -222,37 +210,34 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) {
 
 	cipherRoot, err := tredd.Serve(tmpfile, f, key)
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "serving data: %s", err)
-		return
+		return errors.Wrap(err, "serving data")
 	}
 
 	err = tmpfile.Close()
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "closing response tempfile: %s", err)
-		return
+		return errors.Wrap(err, "closing response tempfile")
 	}
 
 	copy(rec.CipherRoot[:], cipherRoot)
 
 	err = s.storeRecord(req.Context(), rec)
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "storing transfer record: %s", err)
-		return
+		return errors.Wrap(err, "storing transfer record")
 	}
 
 	tmpfile, err = os.Open(tmpfilename)
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "reopening response tempfile: %s", err)
-		return
+		return errors.Wrap(err, "reopening response tempfile")
 	}
 	defer tmpfile.Close()
 	_, err = io.Copy(w, tmpfile)
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "writing response: %s", err)
-		return
+		return errors.Wrap(err, "writing response")
 	}
 
 	// TODO: queue a blockchain watcher that does revealKey when a Tredd contract with this cipher root shows up
+
+	return nil
 }
 
 // TODO: this is no longer an HTTP entrypoint; it's a callback based on a blockchain event
