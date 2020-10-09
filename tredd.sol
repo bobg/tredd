@@ -110,7 +110,7 @@ contract Tredd {
 
     bytes32 got = sha256(abi.encodePacked(leafPrefix, leaf));
 
-    for (uint i = 0; i < steps.length; i++) {
+    for (uint32 i = 0; i < steps.length; i++) {
       ProofStep memory step = steps[i];
       if (step.left) {
         got = sha256(abi.encodePacked(interiorPrefix, step.h, got));
@@ -122,8 +122,15 @@ contract Tredd {
     return got == want;
   }
 
-  function decrypt(bytes memory chunk, uint index) internal pure returns (bytes memory) {
-    // TODO: implement using mDecryptionKey, as in the Go Crypt function.
+  function decrypt(bytes memory chunk, uint64 index) internal view returns (bytes memory) {
+    bytes memory output = new bytes(chunk.length);
+    for (uint64 i = 0; i*32 < chunk.length; i++) {
+      bytes32 subkey = sha256(abi.encodePacked(mDecryptionKey, index, i));
+      for (uint32 j = 0; j < 32 && i*32+j < chunk.length; j++) {
+        output[i*32+j] = chunk[i*32+j] ^ subkey[j];
+      }
+    }
+    return output;
   }
 
   // The buyer claims a refund by proving a chunk is wrong.
