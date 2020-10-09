@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/bobg/merkle"
-	"github.com/chain/txvm/errors"
+	"github.com/pkg/errors"
 )
 
 // Serve produces a stream of interleaved <clearhash><cipherchunk> pairs from the content in r.

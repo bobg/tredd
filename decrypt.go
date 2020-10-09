@@ -8,7 +8,7 @@ import (
 	"io"
 
 	"github.com/bobg/merkle"
-	"github.com/chain/txvm/errors"
+	"github.com/pkg/errors"
 )
 
 // Decrypt decrypts the chunks in cipherChunks by xoring with hashes derived from key.

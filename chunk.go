@@ -3,8 +3,8 @@ package tredd
 import (
 	"crypto/sha256"
 
-	"github.com/chain/txvm/errors"
 	"github.com/chain/txvm/protocol/txvm"
+	"github.com/pkg/errors"
 )
 
 // ChunkSize is the size of a chunk of Tredd data.

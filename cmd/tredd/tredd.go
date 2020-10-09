@@ -16,8 +16,9 @@ import (
 
 	"github.com/bobg/merkle"
 	"github.com/bobg/sqlutil"
+	"github.com/pkg/errors"
+
 	"github.com/bobg/tredd"
-	"github.com/chain/txvm/errors"
 )
 
 func main() {
