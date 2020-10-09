@@ -80,7 +80,8 @@ contract Tredd {
     require (msg.sender == mBuyer);
     require (block.timestamp >= mRevealDeadline);
     require (!mRevealed);
-    // TODO: transfer the balance in this contract to the buyer and destroy the contract.
+    // TODO: transfer the balance in this contract to the buyer
+    selfdestruct(msg.sender);
   }
 
   event evDecryptionKey(bytes32 decryptionKey);
@@ -150,13 +151,16 @@ contract Tredd {
     //  3. Show Hash(index || decrypt(cipherChunk)) != Hash(index || clearChunk)
     require (sha256(abi.encodePacked(index, decrypt(cipherChunk, index))) != clearHash);
 
-    //  4. TODO: Transfer the balance in this contract to the buyer and destroy the contract.
+    //  4. TODO: Transfer the balance in this contract to the buyer.
+
+    selfdestruct(msg.sender);
   }
 
   // The seller claims payment (and reclaims collateral) after the refund deadline.
   function claimPayment() public {
     require (msg.sender == mSeller);
     require (block.timestamp >= mRefundDeadline);
-    // TODO: transfer the balance in this contract to the seller and destroy the contract.
+    // TODO: transfer the balance in this contract to the seller.
+    selfdestruct(msg.sender);
   }
 }
