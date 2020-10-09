@@ -103,6 +103,28 @@ contract Tredd {
     bool left;
   }
 
+  function checkProof(ProofStep[] memory steps, bytes32 leaf, bytes32 want) internal pure returns (bool) {
+    bytes1 leafPrefix = '\x00';
+    bytes1 interiorPrefix = '\x01';
+
+    bytes32 got = sha256(abi.encodePacked(leafPrefix, leaf));
+
+    for (uint i = 0; i < steps.length; i++) {
+      ProofStep memory step = steps[i];
+      if (step.left) {
+        got = sha256(abi.encodePacked(interiorPrefix, step.h, got));
+      } else {
+        got = sha256(abi.encodePacked(interiorPrefix, got, step.h));
+      }
+    }
+
+    return got == want;
+  }
+
+  function decrypt(bytes memory chunk, uint index) internal pure returns (bytes memory) {
+    // TODO: implement using mDecryptionKey, as in the Go Crypt function.
+  }
+
   // The buyer claims a refund by proving a chunk is wrong.
   // Args:
   //   - index: index of the chunk being proven wrong
@@ -119,11 +141,16 @@ contract Tredd {
     require (block.timestamp < mRefundDeadline);
     require (mRevealed);
 
-    // TODO: implement as follows:
     //  1. Verify cipherProof w.r.t. Hash(index || cipherChunk) and mCipherRoot
-    //  2. Verify clearProof w.r.t. Hash(index || clearChunk) and mClearRoot
+    require (checkProof(cipherProof, sha256(abi.encodePacked(index, cipherChunk)), mCipherRoot)); // TODO: check abi.encodePacked(index, cipherChunk) exactly matches Go impl.
+
+    //  2. Verify clearProof w.r.t. Hash(index || clearChunk) (given as clearHash) and mClearRoot
+    require (checkProof(clearProof, clearHash, mClearRoot));
+
     //  3. Show Hash(index || decrypt(cipherChunk)) != Hash(index || clearChunk)
-    //  4. Transfer the balance in this contract to the buyer and destroy the contract.
+    require (sha256(abi.encodePacked(index, decrypt(cipherChunk, index))) != clearHash);
+
+    //  4. TODO: Transfer the balance in this contract to the buyer and destroy the contract.
   }
 
   // The seller claims payment (and reclaims collateral) after the refund deadline.
