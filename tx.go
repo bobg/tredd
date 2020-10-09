@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/big"
 	"strings"
 	"time"
 
@@ -129,12 +128,11 @@ func ClaimRefund(
 	}
 
 	var (
-		bigIndex         = big.NewInt(index)
 		treddCipherProof = toTreddProof(cipherProof)
 		treddClearProof  = toTreddProof(clearProof)
 	)
 
-	tx, err := con.Refund(buyer, bigIndex, cipherChunk, clearHash, treddCipherProof, treddClearProof)
+	tx, err := con.Refund(buyer, uint64(index), cipherChunk, clearHash, treddCipherProof, treddClearProof)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Refund")
 	}

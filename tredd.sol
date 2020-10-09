@@ -133,7 +133,7 @@ contract Tredd {
   //   - clearHash: the expected value of Hash(index || clearChunk)
   //   - cipherProof: Merkle proof that cipherChunk was delivered before payment was proposed
   //   - clearProof: Merkle proof that the expected value of Hash(index || clearChunk) is in mClearRoot
-  function refund(uint index,
+  function refund(uint64 index,
                   bytes memory cipherChunk,
                   bytes32 clearHash,
                   ProofStep[] memory cipherProof,

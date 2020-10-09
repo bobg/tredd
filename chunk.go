@@ -3,7 +3,7 @@ package tredd
 import (
 	"crypto/sha256"
 
-	"github.com/chain/txvm/protocol/txvm"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/pkg/errors"
 )
 
@@ -25,7 +25,13 @@ type ChunkStore interface {
 
 var errMissingChunk = errors.New("missing chunk")
 
-func Crypt(key [32]byte, chunk []byte, index int64) {
+var cryptArgTypes = abi.Arguments{
+	{Type: mustABIType("byte32")},
+	{Type: mustABIType("uint64")},
+	{Type: mustABIType("uint64")},
+}
+
+func Crypt(key [32]byte, chunk []byte, index int64) error {
 	var (
 		hasher = sha256.New()
 		subkey [32]byte
@@ -34,9 +40,13 @@ func Crypt(key [32]byte, chunk []byte, index int64) {
 	for i := 0; 32*i < len(chunk); i++ {
 		// compute subchunk key
 		hasher.Reset()
-		hasher.Write(key[:])
-		hasher.Write(txvm.Encode(txvm.Int(index)))
-		hasher.Write(txvm.Encode(txvm.Int(i)))
+
+		inp, err := cryptArgTypes.Pack(key, uint64(index), uint64(i))
+		if err != nil {
+			return err
+		}
+
+		hasher.Write(inp)
 		hasher.Sum(subkey[:0])
 
 		pos := 32 * i
@@ -49,4 +59,13 @@ func Crypt(key [32]byte, chunk []byte, index int64) {
 			chunk[pos+j] ^= subkey[j]
 		}
 	}
+	return nil
+}
+
+func mustABIType(name string) abi.Type {
+	typ, err := abi.NewType(name, "", nil)
+	if err != nil {
+		panic(err)
+	}
+	return typ
 }
