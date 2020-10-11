@@ -13,10 +13,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
-// It also approves a transfer for amount tokens of tokenType to the contract.
+// It also approves a transfer for `amount` tokens of `tokenType` to the contract
+// and then calls the contract's Pay method.
 func ProposePayment(
 	ctx context.Context,
 	client *ethclient.Client, // see ethclient.Dial
@@ -26,29 +28,45 @@ func ProposePayment(
 	amount, collateral *big.Int,
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
-) (*types.Receipt, error) {
+) (*Tredd, error) {
 	token, err := NewERC20(tokenType, client)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating token")
 	}
 
-	contractAddr, deployTx, _, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
+	contractAddr, deployTx, con, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
 		return nil, errors.Wrap(err, "deploying contract")
 	}
 
-	_, err = token.Approve(buyer, contractAddr, amount)
+	approveTx, err := token.Approve(buyer, contractAddr, amount)
 	if err != nil {
 		return nil, errors.Wrap(err, "approving token transfer")
 	}
 
-	// Wait for tx to be mined on-chain.
-	receipt, err := bind.WaitMined(ctx, client, deployTx)
+	// TODO: double-check that these WaitMined calls are needed before the Pay call.
+	var g errgroup.Group
+	g.Go(func() error {
+		_, err := bind.WaitMined(ctx, client, deployTx)
+		return err
+	})
+	g.Go(func() error {
+		_, err := bind.WaitMined(ctx, client, approveTx)
+		return err
+	})
+	err = g.Wait()
 	if err != nil {
-		return nil, errors.Wrap(err, "awaiting contract-deployment receipt")
+		return nil, errors.Wrap(err, "waiting for contract deployment and/or transfer approval")
 	}
 
-	return receipt, nil
+	payTx, err := con.Pay(buyer)
+	if err != nil {
+		return nil, errors.Wrap(err, "making payment")
+	}
+
+	// Wait for payTx to be mined on-chain.
+	_, err = bind.WaitMined(ctx, client, payTx)
+	return con, errors.Wrap(err, "awaiting payment transaction")
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
@@ -191,7 +209,18 @@ func ClaimRefund(
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
+	return con.CallRefund(ctx, client, buyer, index, cipherChunk, clearHash, cipherProof, clearProof)
+}
 
+func (con *Tredd) CallRefund(
+	ctx context.Context,
+	client *ethclient.Client,
+	buyer *bind.TransactOpts,
+	index int64,
+	cipherChunk []byte,
+	clearHash [32]byte,
+	cipherProof, clearProof merkle.Proof,
+) (*types.Receipt, error) {
 	var (
 		treddCipherProof = toTreddProof(cipherProof)
 		treddClearProof  = toTreddProof(clearProof)

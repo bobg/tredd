@@ -11,6 +11,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+// TODO: Solidity encoding (as in serve.go).
+
 // Decrypt decrypts the chunks in cipherChunks by xoring with hashes derived from key.
 // It writes the concatenated cleartext chunks to w.
 // Along the way, it compares each cleartext chunk's hash to the corresponding value in clearHashes.

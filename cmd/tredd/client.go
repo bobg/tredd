@@ -143,12 +143,7 @@ func get(args []string) {
 		log.Fatal(err)
 	}
 
-	receipt, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
-	if err != nil {
-		log.Fatal(err)
-	}
-	contractAddr := receipt.ContractAddress
-	con, err := tredd.NewTredd(contractAddr, client)
+	con, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -251,7 +246,7 @@ func get(args []string) {
 
 			copy(clearHash[:], refHash[m:m+32])
 
-			receipt, err := tredd.ClaimRefund(ctx, client, buyer, contractAddr, bchErr.Index, refCipherChunk[m:m+len(g)], clearHash, cipherProof, clearProof) // TODO: range check
+			receipt, err := con.CallRefund(ctx, client, buyer, bchErr.Index, refCipherChunk[m:m+len(g)], clearHash, cipherProof, clearProof) // TODO: range check
 			if err != nil {
 				log.Fatalf("Error constructing refund-claiming transaction: %s", err)
 			}

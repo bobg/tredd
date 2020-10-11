@@ -60,6 +60,7 @@ func add(args []string) {
 	}
 }
 
+// TODO: Solidity encoding (as in serve.go).
 func addFile(file, dir, contentType string) error {
 	f, err := os.Open(file)
 	if err != nil {

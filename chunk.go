@@ -3,7 +3,6 @@ package tredd
 import (
 	"crypto/sha256"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/pkg/errors"
 )
 
@@ -24,12 +23,6 @@ type ChunkStore interface {
 }
 
 var errMissingChunk = errors.New("missing chunk")
-
-var cryptArgTypes = abi.Arguments{
-	{Type: mustABIType("byte32")},
-	{Type: mustABIType("uint64")},
-	{Type: mustABIType("uint64")},
-}
 
 func Crypt(key [32]byte, chunk []byte, index int64) error {
 	var (
@@ -60,12 +53,4 @@ func Crypt(key [32]byte, chunk []byte, index int64) error {
 		}
 	}
 	return nil
-}
-
-func mustABIType(name string) abi.Type {
-	typ, err := abi.NewType(name, "", nil)
-	if err != nil {
-		panic(err)
-	}
-	return typ
 }

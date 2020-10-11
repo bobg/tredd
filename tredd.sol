@@ -147,30 +147,51 @@ contract Tredd {
     mRevealed = false;
   }
 
-  event evDecryptionKey(bytes32 decryptionKey);
+  event evPaid();
+
+  // The buyer adds their payment.
+  // The buyer must first have approved the token transfer.
+  // This emits the "paid" event,
+  // which the seller watches for,
+  // so the buyer should not pay into this contract by other means.
+  function pay() public {
+    require (msg.sender == mBuyer);
+    require (block.timestamp < uint(mRevealDeadline));
+
+    uint balance = mTokenType.balanceOf(address(this));
+    require (balance < mAmount);
+    require (mTokenType.transferFrom(mBuyer, address(this), mAmount - balance));
+
+    emit evPaid();
+  }
 
   // The reveal deadline has passed without reveal being called.
-  // The buyer cancels the contract.
+  // The buyer cancels the contract, reclaiming any payment made.
   function cancel() public {
     require (msg.sender == mBuyer);
     require (block.timestamp >= uint(mRevealDeadline));
     require (!mRevealed);
+
+    uint balance = mTokenType.balanceOf(address(this));
+    if (balance > 0) {
+      mTokenType.transfer(mBuyer, balance);
+    }
+
     selfdestruct(msg.sender);
   }
 
+  event evDecryptionKey(bytes32 decryptionKey);
+
   // The seller reveals the decryption key.
-  // TODO: There is a front-running attack on this method.
-  // The buyer could spot the decryption key in this tx in the pool,
-  // then try to cancel their token-transfer approval before this tx is mined.
-  // Perhaps we should require the buyer to fund the contract first.
+  // Before calling this,
+  // the seller must approve a transfer of the required collateral,
+  // and should verify that the buyer has made their payment.
   function reveal(bytes32 decryptionKey) public {
     require (msg.sender == mSeller);
     require (block.timestamp < uint(mRevealDeadline));
     require (!mRevealed);
 
-    // Fund the contract.
-    // Buyer and seller must each have "allowed" these transfers.
-    require (mTokenType.transferFrom(mBuyer, address(this), mAmount));
+    // Add collateral.
     require (mTokenType.transferFrom(mSeller, address(this), mCollateral));
 
     mDecryptionKey = decryptionKey;
