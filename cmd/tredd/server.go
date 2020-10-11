@@ -279,7 +279,6 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		wantTokenType,
 		wantAmount, wantCollateral,
 		rec.ClearRoot, rec.CipherRoot,
-		rec.RevealDeadline, rec.RefundDeadline,
 	)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)

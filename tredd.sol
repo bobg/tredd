@@ -159,6 +159,10 @@ contract Tredd {
   }
 
   // The seller reveals the decryption key.
+  // TODO: There is a front-running attack on this method.
+  // The buyer could spot the decryption key in this tx in the pool,
+  // then try to cancel their token-transfer approval before this tx is mined.
+  // Perhaps we should require the buyer to fund the contract first.
   function reveal(bytes32 decryptionKey) public {
     require (msg.sender == mSeller);
     require (block.timestamp < uint(mRevealDeadline));

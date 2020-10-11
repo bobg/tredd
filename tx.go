@@ -79,9 +79,7 @@ func RevealKey(
 	wantTokenType common.Address,
 	wantAmount, wantCollateral *big.Int,
 	wantClearRoot, wantCipherRoot [32]byte,
-	wantRevealDeadline, wantRefundDeadline time.Time,
 ) (*types.Receipt, error) {
-	// TODO: read values from the on-chain contract, verify they match the "want" parameters
 	con, err := NewTredd(contractAddr, client)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
@@ -91,58 +89,51 @@ func RevealKey(
 
 	gotTokenType, err := con.MTokenType(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mTokenType")
 	}
 	if gotTokenType != wantTokenType {
-		// xxx
+		return nil, fmt.Errorf("got token type %s, want %s", gotTokenType.Hex(), wantTokenType.Hex())
 	}
 
 	gotAmount, err := con.MAmount(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mAmount")
 	}
 	if gotAmount.Cmp(wantAmount) != 0 {
-		// xxx
+		return nil, fmt.Errorf("got amount %s, want %s", gotAmount, wantAmount)
 	}
 
 	gotCollateral, err := con.MCollateral(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mCollateral")
 	}
 	if gotCollateral.Cmp(wantCollateral) != 0 {
-		// xxx
+		return nil, fmt.Errorf("got collateral %s, want %s", gotCollateral, wantCollateral)
 	}
 
 	gotCipherRoot, err := con.MCipherRoot(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mCipherRoot")
 	}
 	if gotCipherRoot != wantCipherRoot {
-		// xxx
+		return nil, fmt.Errorf("got cipher root %x, want %x", gotCipherRoot[:], wantCipherRoot[:])
 	}
 
 	gotClearRoot, err := con.MClearRoot(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mClearRoot")
 	}
 	if gotClearRoot != wantClearRoot {
-		// xxx
+		return nil, fmt.Errorf("got clear root %x, want %x", gotClearRoot[:], wantClearRoot[:])
 	}
 
 	gotRefundDeadline, err := con.MRefundDeadline(callOpts)
 	if err != nil {
-		// xxx
+		return nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
-	if gotRefundDeadline != wantRefundDeadline.Unix() {
-		// xxx
-	}
-
-	gotRevealDeadline, err := con.MRevealDeadline(callOpts)
-	if err != nil {
-		// xxx
-	}
-	if gotRevealDeadline != wantRevealDeadline.Unix() {
-		// xxx
+	wantRefundDeadline := time.Now().Add(time.Hour) // TODO: parameterize?
+	if gotRefundDeadline > wantRefundDeadline.Unix() {
+		return nil, fmt.Errorf("refund deadline is more than %s in the future", time.Hour)
 	}
 
 	token, err := NewERC20(wantTokenType, client)
