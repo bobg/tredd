@@ -15,15 +15,14 @@ import (
 // TODO: Cleartext chunks and their hashes can be precomputed and supplied as ChunkStores.
 func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	var (
-		cipherMT            = merkle.NewTree(sha256.New())
-		hasher              = sha256.New()
-		chunk               [ChunkSize + binary.MaxVarintLen64]byte
-		clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
+		cipherMT  = merkle.NewTree(sha256.New())
+		hasher    = sha256.New()
+		chunk     [ChunkSize + binary.MaxVarintLen64]byte
+		clearHash [32]byte
 	)
 
 	for index := uint64(0); ; index++ {
-		m := binary.PutUvarint(clearHashWithPrefix[:], index)
-		binary.PutUvarint(chunk[:], index)
+		m := binary.PutUvarint(chunk[:], index)
 
 		n, err := io.ReadFull(r, chunk[m:m+ChunkSize])
 		if err == io.EOF {
@@ -37,9 +36,8 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 		// chunk[:m] is still the index prefix
 		// chunk[m:m+n] is the cleartext chunk
 
-		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunk[m:m+n])
-
-		_, err = w.Write(clearHashWithPrefix[m : m+32])
+		merkle.LeafHash(hasher, clearHash[:0], chunk[m:m+n])
+		_, err = w.Write(clearHash[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
