@@ -1,6 +1,79 @@
 pragma solidity ^0.7.2; // TODO: determine the best (lowest?) version number that works here.
 pragma experimental ABIEncoderV2; // This is needed to compile the ProofStep[] params of refund().
 
+// This interface is copied from
+// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.0.0/contracts/token/ERC20/IERC20.sol.
+interface ERC20 {
+    /**
+     * @dev Returns the amount of tokens in existence.
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @dev Returns the amount of tokens owned by `account`.
+     */
+    function balanceOf(address account) external view returns (uint256);
+
+    /**
+     * @dev Moves `amount` tokens from the caller's account to `recipient`.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transfer(address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Returns the remaining number of tokens that `spender` will be
+     * allowed to spend on behalf of `owner` through {transferFrom}. This is
+     * zero by default.
+     *
+     * This value changes when {approve} or {transferFrom} are called.
+     */
+    function allowance(address owner, address spender) external view returns (uint256);
+
+    /**
+     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
+     * that someone may use both the old and the new allowance by unfortunate
+     * transaction ordering. One possible solution to mitigate this race
+     * condition is to first reduce the spender's allowance to 0 and set the
+     * desired value afterwards:
+     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+     *
+     * Emits an {Approval} event.
+     */
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Moves `amount` tokens from `sender` to `recipient` using the
+     * allowance mechanism. `amount` is then deducted from the caller's
+     * allowance.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Emitted when `value` tokens are moved from one account (`from`) to
+     * another (`to`).
+     *
+     * Note that `value` may be zero.
+     */
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    /**
+     * @dev Emitted when the allowance of a `spender` for an `owner` is set by
+     * a call to {approve}. `value` is the new allowance.
+     */
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
 // A Tredd contract represents a single exchange of payment for data.
 // It is deployed on-chain by the buyer,
 // who funds it with the proposed payment
@@ -20,13 +93,12 @@ contract Tredd {
   address public mBuyer;
   address public mSeller;
 
+  // The type of the token the buyer proposes to pay with.
+  ERC20 public mTokenType;
+
   // The amount that the buyer proposes to pay.
   // The contract must be funded with this amount.
   uint public mAmount;
-
-  // The type of the token the buyer proposes to pay with.
-  // TODO: How to specify the type of the desired token? (It's not "bytes.") Should we stick with just ETH to start with?
-  bytes public mTokenType;
 
   // The amount of collateral that the buyer requires the seller to add
   // when revealing the decryption key.
@@ -43,10 +115,10 @@ contract Tredd {
   bytes32 public mCipherRoot;
 
   // Seller must reveal the decryption key by this time.
-  uint public mRevealDeadline;
+  int64 public mRevealDeadline;
 
   // Buyer must claim a refund by this time.
-  uint public mRefundDeadline;
+  int64 public mRefundDeadline;
 
   // The seller supplies this.
   bytes32 public mDecryptionKey;
@@ -56,17 +128,17 @@ contract Tredd {
 
   // Constructor.
   constructor(address seller,
+              address tokenType,
               uint amount,
-              bytes memory tokenType,
               uint collateral,
               bytes32 clearRoot,
               bytes32 cipherRoot,
-              uint revealDeadline,
-              uint refundDeadline) {
+              int64 revealDeadline,
+              int64 refundDeadline) {
     mBuyer = msg.sender;
     mSeller = seller;
+    mTokenType = ERC20(tokenType);
     mAmount = amount;
-    mTokenType = tokenType;
     mCollateral = collateral;
     mClearRoot = clearRoot;
     mCipherRoot = cipherRoot;
@@ -75,23 +147,27 @@ contract Tredd {
     mRevealed = false;
   }
 
-  // The buyer may reclaim payment if it's after the reveal deadline and no decryption key has been revealed.
-  function reclaim() public {
+  event evDecryptionKey(bytes32 decryptionKey);
+
+  // The reveal deadline has passed without reveal being called.
+  // The buyer cancels the contract.
+  function cancel() public {
     require (msg.sender == mBuyer);
-    require (block.timestamp >= mRevealDeadline);
+    require (block.timestamp >= uint(mRevealDeadline));
     require (!mRevealed);
-    // TODO: transfer the balance in this contract to the buyer
     selfdestruct(msg.sender);
   }
-
-  event evDecryptionKey(bytes32 decryptionKey);
 
   // The seller reveals the decryption key.
   function reveal(bytes32 decryptionKey) public {
     require (msg.sender == mSeller);
-    require (block.timestamp < mRevealDeadline);
+    require (block.timestamp < uint(mRevealDeadline));
     require (!mRevealed);
-    // TODO: require the seller to add (or have already added) the requested collateral
+
+    // Fund the contract.
+    // Buyer and seller must each have "allowed" these transfers.
+    require (mTokenType.transferFrom(mBuyer, address(this), mAmount));
+    require (mTokenType.transferFrom(mSeller, address(this), mCollateral));
 
     mDecryptionKey = decryptionKey;
     mRevealed = true;
@@ -125,9 +201,10 @@ contract Tredd {
   function decrypt(bytes memory chunk, uint64 index) internal view returns (bytes memory) {
     bytes memory output = new bytes(chunk.length);
     for (uint64 i = 0; i*32 < chunk.length; i++) {
+      uint64 pos = i*32;
       bytes32 subkey = sha256(abi.encodePacked(mDecryptionKey, index, i));
-      for (uint32 j = 0; j < 32 && i*32+j < chunk.length; j++) {
-        output[i*32+j] = chunk[i*32+j] ^ subkey[j];
+      for (uint32 j = 0; j < 32 && pos+j < chunk.length; j++) {
+        output[pos+j] = chunk[pos+j] ^ subkey[j];
       }
     }
     return output;
@@ -146,28 +223,31 @@ contract Tredd {
                   ProofStep[] memory cipherProof,
                   ProofStep[] memory clearProof) public {
     require (msg.sender == mBuyer);
-    require (block.timestamp < mRefundDeadline);
+    require (block.timestamp < uint(mRefundDeadline));
     require (mRevealed);
 
-    //  1. Verify cipherProof w.r.t. Hash(index || cipherChunk) and mCipherRoot
+    // 1. Verify cipherProof w.r.t. Hash(index || cipherChunk) and mCipherRoot
     require (checkProof(cipherProof, sha256(abi.encodePacked(index, cipherChunk)), mCipherRoot)); // TODO: check abi.encodePacked(index, cipherChunk) exactly matches Go impl.
 
-    //  2. Verify clearProof w.r.t. Hash(index || clearChunk) (given as clearHash) and mClearRoot
+    // 2. Verify clearProof w.r.t. Hash(index || clearChunk) (given as clearHash) and mClearRoot
     require (checkProof(clearProof, clearHash, mClearRoot));
 
-    //  3. Show Hash(index || decrypt(cipherChunk)) != Hash(index || clearChunk)
+    // 3. Show Hash(index || decrypt(cipherChunk)) != Hash(index || clearChunk)
     require (sha256(abi.encodePacked(index, decrypt(cipherChunk, index))) != clearHash);
 
-    //  4. TODO: Transfer the balance in this contract to the buyer.
+    // 4. Transfer the balance in this contract to the buyer.
+    require (mTokenType.transfer(mBuyer, mAmount+mCollateral));
 
+    // 5. Self destruct.
     selfdestruct(msg.sender);
   }
 
   // The seller claims payment (and reclaims collateral) after the refund deadline.
   function claimPayment() public {
     require (msg.sender == mSeller);
-    require (block.timestamp >= mRefundDeadline);
-    // TODO: transfer the balance in this contract to the seller.
+    require (block.timestamp >= uint(mRefundDeadline));
+    require (mTokenType.transfer(mSeller, mAmount+mCollateral));
+
     selfdestruct(msg.sender);
   }
 }

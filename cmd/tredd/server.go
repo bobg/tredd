@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -263,9 +264,23 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var contractAddr common.Address // TODO: populate this (in the HTTP request?)
+	// TODO: populate these
+	var (
+		contractAddr, wantTokenType common.Address
+		wantAmount, wantCollateral  *big.Int
+	)
 
-	receipt, err := tredd.RevealKey(ctx, client, s.seller, contractAddr, rec.Key, rec.ClearRoot, rec.CipherRoot, rec.RevealDeadline, rec.RefundDeadline)
+	receipt, err := tredd.RevealKey(
+		ctx,
+		client,
+		s.seller,
+		contractAddr,
+		rec.Key,
+		wantTokenType,
+		wantAmount, wantCollateral,
+		rec.ClearRoot, rec.CipherRoot,
+		rec.RevealDeadline, rec.RefundDeadline,
+	)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
 		return

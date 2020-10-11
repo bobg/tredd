@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
+	"math/big"
 	"time"
 
 	"github.com/bobg/merkle"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -17,68 +16,68 @@ import (
 )
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
+// It also approves a transfer for amount tokens of tokenType to the contract.
 func ProposePayment(
 	ctx context.Context,
 	client *ethclient.Client, // see ethclient.Dial
 	buyer *bind.TransactOpts, // see bind.NewTransactor
 	seller common.Address,
-	amount int64,
-	tokenType string, // TODO: how to specify the token type?
+	tokenType common.Address,
+	amount, collateral *big.Int,
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
 ) (*types.Receipt, error) {
-	parsed, err := abi.JSON(strings.NewReader(TreddABI))
+	token, err := NewERC20(tokenType, client)
 	if err != nil {
-		return nil, errors.Wrap(err, "parsing contract JSON to ABI")
+		return nil, errors.Wrap(err, "instantiating token")
 	}
 
-	_, tx, _, err := bind.DeployContract(buyer, parsed, common.FromHex(TreddBin), client)
+	contractAddr, deployTx, _, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
 		return nil, errors.Wrap(err, "deploying contract")
 	}
 
+	_, err = token.Approve(buyer, contractAddr, amount)
+	if err != nil {
+		return nil, errors.Wrap(err, "approving token transfer")
+	}
+
 	// Wait for tx to be mined on-chain.
-	receipt, err := bind.WaitMined(ctx, client, tx)
+	receipt, err := bind.WaitMined(ctx, client, deployTx)
 	if err != nil {
 		return nil, errors.Wrap(err, "awaiting contract-deployment receipt")
 	}
 
-	// TODO: store contractAddr
-
 	return receipt, nil
 }
 
-// ReclaimPayment is used by the buyer to reclaim their payment
-// when no decryption key has been revealed by the reveal deadline.
-func ReclaimPayment(
-	ctx context.Context,
-	client *ethclient.Client, // see ethclient.Dial
-	buyer *bind.TransactOpts,
-	contractAddr common.Address,
-) (*types.Receipt, error) {
+// After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
+func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, contractAddr common.Address) (*types.Receipt, error) {
 	con, err := NewTredd(contractAddr, client)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
-	return con.ReclaimPayment(ctx, client, buyer)
+	return con.CallCancel(ctx, client, buyer)
 }
 
-func (con *Tredd) ReclaimPayment(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts) (*types.Receipt, error) {
-	tx, err := con.Reclaim(buyer)
+func (con *Tredd) CallCancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts) (*types.Receipt, error) {
+	tx, err := con.Cancel(buyer)
 	if err != nil {
-		return nil, errors.Wrap(err, "invoking Reclaim")
+		return nil, errors.Wrap(err, "canceling contract")
 	}
 	return bind.WaitMined(ctx, client, tx)
 }
 
 // RevealKey updates a Tredd contract on-chain by adding the decryption key.
-// TODO: Must also supply collateral.
+// It also approves a collateral transfer.
 func RevealKey(
 	ctx context.Context,
 	client *ethclient.Client, // see ethclient.Dial
 	seller *bind.TransactOpts, // see bind.NewTransactor
 	contractAddr common.Address,
 	key [32]byte,
+	wantTokenType common.Address,
+	wantAmount, wantCollateral *big.Int,
 	wantClearRoot, wantCipherRoot [32]byte,
 	wantRevealDeadline, wantRefundDeadline time.Time,
 ) (*types.Receipt, error) {
@@ -87,6 +86,77 @@ func RevealKey(
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
+
+	callOpts := &bind.CallOpts{Context: ctx}
+
+	gotTokenType, err := con.MTokenType(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotTokenType != wantTokenType {
+		// xxx
+	}
+
+	gotAmount, err := con.MAmount(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotAmount.Cmp(wantAmount) != 0 {
+		// xxx
+	}
+
+	gotCollateral, err := con.MCollateral(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotCollateral.Cmp(wantCollateral) != 0 {
+		// xxx
+	}
+
+	gotCipherRoot, err := con.MCipherRoot(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotCipherRoot != wantCipherRoot {
+		// xxx
+	}
+
+	gotClearRoot, err := con.MClearRoot(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotClearRoot != wantClearRoot {
+		// xxx
+	}
+
+	gotRefundDeadline, err := con.MRefundDeadline(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotRefundDeadline != wantRefundDeadline.Unix() {
+		// xxx
+	}
+
+	gotRevealDeadline, err := con.MRevealDeadline(callOpts)
+	if err != nil {
+		// xxx
+	}
+	if gotRevealDeadline != wantRevealDeadline.Unix() {
+		// xxx
+	}
+
+	token, err := NewERC20(wantTokenType, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "instantiating token")
+	}
+
+	_, err = token.Approve(seller, contractAddr, wantCollateral)
+	if err != nil {
+		return nil, errors.Wrap(err, "approving token transfer")
+	}
+
+	// TODO: Does the approve transaction have to be mined before the reveal transaction will work?
+
 	tx, err := con.Reveal(seller, key)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking ClaimPayment")

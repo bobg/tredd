@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,8 +34,9 @@ func get(args []string) {
 
 	var (
 		clearRootHex      = fs.String("hash", "", "clear-chunk Merkle root hash of requested file")
-		amount            = fs.Int64("amount", 0, "amount of proposed payment")
-		tokenType         = fs.String("token", "", "asset ID of proposed payment")
+		tokenTypeStr      = fs.String("token", "", "token type (ERC20 hex address) of proposed payment")
+		amountStr         = fs.String("amount", "1", "amount of proposed payment")
+		collateralStr     = fs.String("collateral", "1", "amount of proposed collateral")
 		revealDeadlineDur = fs.Duration("reveal", 15*time.Minute, "time until reveal deadline, in time.ParseDuration format")
 		refundDeadlineDur = fs.Duration("refund", 30*time.Minute, "time from reveal deadline until refund deadline, in time.ParseDuration format")
 		serverURL         = fs.String("server", "", "base URL of tredd server")
@@ -67,10 +69,31 @@ func get(args []string) {
 		log.Fatal(err)
 	}
 
+	var (
+		amount     = new(big.Int)
+		collateral = new(big.Int)
+	)
+	_, ok := amount.SetString(*amountStr, 10)
+	if !ok {
+		log.Fatalf(`Error parsing amount string "%s"`, *amountStr)
+	}
+	_, ok = collateral.SetString(*collateralStr, 10)
+	if !ok {
+		log.Fatalf(`Error parsing collateralStr string "%s"`, *collateralStr)
+	}
+
+	client, err := ethclient.Dial(*ethURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tokenType := common.HexToAddress(*tokenTypeStr)
+
 	vals := url.Values{}
 	vals.Add("clearroot", *clearRootHex)
-	vals.Add("amount", strconv.FormatInt(*amount, 10))
-	vals.Add("token", *tokenType)
+	vals.Add("amount", amount.String())
+	vals.Add("collateral", collateral.String())
+	vals.Add("token", tokenType.Hex())
 	vals.Add("revealdeadline", strconv.FormatInt(int64(Millis(revealDeadline)), 10)) // TODO: range check
 	vals.Add("refunddeadline", strconv.FormatInt(int64(Millis(refundDeadline)), 10)) // TODO: range check
 
@@ -114,18 +137,13 @@ func get(args []string) {
 
 	log.Print("proposing payment")
 
-	client, err := ethclient.Dial(*ethURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	var seller common.Address
 	_, err = hex.Decode(seller[:], []byte(*sellerHex))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	receipt, err := tredd.ProposePayment(ctx, client, buyer, seller, *amount, *tokenType, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
+	receipt, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,8 +174,7 @@ func get(args []string) {
 		return
 
 	case <-revealTimer.C:
-		// Deadline passed with no decryption key revealed.
-		receipt, err := con.ReclaimPayment(ctx, client, buyer)
+		receipt, err := con.CallCancel(ctx, client, buyer)
 		if err != nil {
 			log.Fatal(err)
 		}
