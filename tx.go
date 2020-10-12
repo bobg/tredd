@@ -45,13 +45,13 @@ func ProposePayment(
 	}
 
 	// TODO: double-check that these WaitMined calls are needed before the Pay call.
-	var g errgroup.Group
+	g, ctx2 := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		_, err := bind.WaitMined(ctx, client, deployTx)
+		_, err := bind.WaitMined(ctx2, client, deployTx)
 		return err
 	})
 	g.Go(func() error {
-		_, err := bind.WaitMined(ctx, client, approveTx)
+		_, err := bind.WaitMined(ctx2, client, approveTx)
 		return err
 	})
 	err = g.Wait()
