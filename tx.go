@@ -167,7 +167,13 @@ func RevealKey(
 		return nil, nil, errors.Wrap(err, "instantiating token")
 	}
 
-	// xxx check that the buyer has made their payment.
+	paidAmount, err := token.BalanceOf(callOpts, contractAddr)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "checking contract balance")
+	}
+	if paidAmount.Cmp(wantAmount) < 0 {
+		return nil, nil, fmt.Errorf("contract balance is %s, want %s", paidAmount, wantAmount)
+	}
 
 	_, err = token.Approve(seller, contractAddr, wantCollateral)
 	if err != nil {

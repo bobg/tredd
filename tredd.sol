@@ -147,13 +147,8 @@ contract Tredd {
     mRevealed = false;
   }
 
-  event evPaid();
-
   // The buyer adds their payment.
   // The buyer must first have approved the token transfer.
-  // This emits the "paid" event,
-  // which the seller watches for,
-  // so the buyer should not pay into this contract by other means.
   function pay() public {
     require (msg.sender == mBuyer);
     require (block.timestamp < uint(mRevealDeadline));
@@ -161,8 +156,6 @@ contract Tredd {
     uint balance = mTokenType.balanceOf(address(this));
     require (balance < mAmount);
     require (mTokenType.transferFrom(mBuyer, address(this), mAmount - balance));
-
-    emit evPaid();
   }
 
   // The reveal deadline has passed without reveal being called.
