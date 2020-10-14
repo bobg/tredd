@@ -31,3 +31,11 @@ func mustABIType(name string) abi.Type {
 	}
 	return typ
 }
+
+func PrefixHash(n uint64, h [32]byte) ([]byte, error) {
+	return prefixedHashArgTypes.Pack(n, h)
+}
+
+func PrefixChunk(n uint64, chunk []byte) ([]byte, error) {
+	return prefixedChunkArgTypes.Pack(n, chunk)
+}

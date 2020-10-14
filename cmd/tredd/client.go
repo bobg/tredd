@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -192,63 +191,67 @@ func get(args []string) {
 
 			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
 
-			// xxx Use abi packed encoding
+			refClearHash, err := clearHashes.Get(bchErr.Index)
+			if err != nil {
+				// xxx
+			}
+			var refClearHashBuf [32]byte
+			copy(refClearHashBuf[:], refClearHash)
+			prefixedRefClearHash, err := tredd.PrefixHash(uint64(bchErr.Index), refClearHashBuf)
+			if err != nil {
+				// xxx
+			}
+
+			refCipherChunk, err := cipherChunks.Get(bchErr.Index)
+			if err != nil {
+				// xxx
+			}
+			prefixedRefCipherChunk, err := tredd.PrefixChunk(uint64(bchErr.Index), refCipherChunk)
+			if err != nil {
+				// xxx
+			}
 
 			var (
-				refHash        [32 + binary.MaxVarintLen64]byte
-				refCipherChunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
+				clearTree  = merkle.NewProofTree(sha256.New(), prefixedRefClearHash)
+				cipherTree = merkle.NewProofTree(sha256.New(), prefixedRefCipherChunk)
 			)
-			m := binary.PutUvarint(refHash[:], uint64(bchErr.Index))
-			binary.PutUvarint(refCipherChunk[:], uint64(bchErr.Index))
 
-			g, err := clearHashes.Get(bchErr.Index)
-			if err != nil {
-				log.Fatalf("getting hash %d from %s: %s", bchErr.Index, clearHashes.filename, err)
-			}
-			copy(refHash[m:], g)
-
-			g, err = cipherChunks.Get(bchErr.Index)
-			if err != nil {
-				log.Fatalf("getting cipher chunk %d from %s: %s", bchErr.Index, cipherChunks.filename, err)
-			}
-			copy(refCipherChunk[m:], g)
-
-			var (
-				clearTree  = merkle.NewProofTree(sha256.New(), refHash[:m+32])
-				cipherTree = merkle.NewProofTree(sha256.New(), refCipherChunk[:m+len(g)])
-				hasher     = sha256.New()
-			)
 			nchunks, err := cipherChunks.Len()
 			if err != nil {
-				log.Fatalf("getting length of cipher chunk store %s: %s", cipherChunks.filename, err)
+				// xxx
 			}
-			for index := int64(0); index < int64(nchunks); index++ {
-				var chunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
-				m := binary.PutUvarint(chunk[:], uint64(index))
-				ci, err := cipherChunks.Get(index)
+
+			for index := int64(0); index < nchunks; index++ {
+				clearHash, err := clearHashes.Get(index)
 				if err != nil {
-					log.Fatalf("getting cipher chunk %d from %s: %s", bchErr.Index, cipherChunks.filename, err)
+					// xxx
 				}
-				copy(chunk[m:], ci)
-				n := len(ci)
+				var clearHashBuf [32]byte
+				copy(clearHashBuf[:], clearHash)
+				prefixedClearHash, err := tredd.PrefixHash(uint64(index), clearHashBuf)
+				if err != nil {
+					// xxx
+				}
 
-				var h [32 + binary.MaxVarintLen64]byte
-				binary.PutUvarint(h[:], uint64(index))
-				merkle.LeafHash(hasher, h[:m], chunk[:m+n])
+				cipherChunk, err := cipherChunks.Get(index)
+				if err != nil {
+					// xxx
+				}
+				prefixedCipherChunk, err := tredd.PrefixChunk(uint64(index), cipherChunk)
+				if err != nil {
+					// xxx
+				}
 
-				clearTree.Add(h[:m+32])
-				cipherTree.Add(chunk[:m+n])
+				clearTree.Add(prefixedClearHash)
+				cipherTree.Add(prefixedCipherChunk)
 			}
 
 			var (
 				clearProof  = clearTree.Proof()
 				cipherProof = cipherTree.Proof()
-				clearHash   [32]byte
 			)
 
-			copy(clearHash[:], refHash[m:m+32])
-
-			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk[m:m+len(g)], clearHash, cipherProof, clearProof) // TODO: range check
+			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk, refClearHashBuf, cipherProof, clearProof)
 			if err != nil {
 				log.Fatalf("Error constructing refund-claiming transaction: %s", err)
 			}

@@ -40,7 +40,7 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
 		}
 
-		prefixedCipherChunk, err := prefixedChunkArgTypes.Pack(uint64(index), chunk[:n])
+		prefixedCipherChunk, err := PrefixChunk(uint64(index), chunk[:n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "packing prefixed cipher chunk %d", index)
 		}
