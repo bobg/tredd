@@ -21,27 +21,27 @@ import (
 // and then calls the contract's Pay method.
 func ProposePayment(
 	ctx context.Context,
-	client *ethclient.Client, // see ethclient.Dial
-	buyer *bind.TransactOpts, // see bind.NewTransactor
+	client *ethclient.Client,
+	buyer *bind.TransactOpts,
 	seller common.Address,
 	tokenType common.Address,
 	amount, collateral *big.Int,
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
-) (*Tredd, error) {
+) (common.Address, *Tredd, error) {
 	token, err := NewERC20(tokenType, client)
 	if err != nil {
-		return nil, errors.Wrap(err, "instantiating token")
+		return common.Address{}, nil, errors.Wrap(err, "instantiating token")
 	}
 
 	contractAddr, deployTx, con, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
-		return nil, errors.Wrap(err, "deploying contract")
+		return common.Address{}, nil, errors.Wrap(err, "deploying contract")
 	}
 
 	approveTx, err := token.Approve(buyer, contractAddr, amount)
 	if err != nil {
-		return nil, errors.Wrap(err, "approving token transfer")
+		return common.Address{}, nil, errors.Wrap(err, "approving token transfer")
 	}
 
 	// TODO: double-check that these WaitMined calls are needed before the Pay call.
@@ -56,17 +56,17 @@ func ProposePayment(
 	})
 	err = g.Wait()
 	if err != nil {
-		return nil, errors.Wrap(err, "waiting for contract deployment and/or transfer approval")
+		return common.Address{}, nil, errors.Wrap(err, "waiting for contract deployment and/or transfer approval")
 	}
 
 	payTx, err := con.Pay(buyer)
 	if err != nil {
-		return nil, errors.Wrap(err, "making payment")
+		return common.Address{}, nil, errors.Wrap(err, "making payment")
 	}
 
 	// Wait for payTx to be mined on-chain.
 	_, err = bind.WaitMined(ctx, client, payTx)
-	return con, errors.Wrap(err, "awaiting payment transaction")
+	return contractAddr, con, errors.Wrap(err, "awaiting payment transaction")
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
@@ -166,6 +166,8 @@ func RevealKey(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "instantiating token")
 	}
+
+	// xxx check that the buyer has made their payment.
 
 	_, err = token.Approve(seller, contractAddr, wantCollateral)
 	if err != nil {

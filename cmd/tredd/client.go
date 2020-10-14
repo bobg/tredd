@@ -53,6 +53,7 @@ func get(args []string) {
 
 	var (
 		requestURL     = *serverURL + "/request"
+		proposeURL     = *serverURL + "/propose-payment"
 		revealDeadline = time.Now().Add(*revealDeadlineDur)
 		refundDeadline = revealDeadline.Add(*refundDeadlineDur)
 	)
@@ -89,12 +90,13 @@ func get(args []string) {
 	tokenType := common.HexToAddress(*tokenTypeStr)
 
 	vals := url.Values{}
+	vals.Add("buyer", buyer.From.Hex())
 	vals.Add("clearroot", *clearRootHex)
+	vals.Add("token", tokenType.Hex())
 	vals.Add("amount", amount.String())
 	vals.Add("collateral", collateral.String())
-	vals.Add("token", tokenType.Hex())
-	vals.Add("revealdeadline", strconv.FormatInt(int64(Millis(revealDeadline)), 10)) // TODO: range check
-	vals.Add("refunddeadline", strconv.FormatInt(int64(Millis(refundDeadline)), 10)) // TODO: range check
+	vals.Add("revealdeadline", strconv.FormatInt(revealDeadline.Unix(), 10))
+	vals.Add("refunddeadline", strconv.FormatInt(refundDeadline.Unix(), 10)) // TODO: range check
 
 	log.Print("requesting content")
 	resp, err := http.PostForm(requestURL, vals)
@@ -142,10 +144,19 @@ func get(args []string) {
 		log.Fatal(err)
 	}
 
-	con, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
+	contractAddr, con, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	vals = url.Values{}
+	vals.Add("transferid", transferID)
+	vals.Add("contractaddr", contractAddr.Hex())
+	resp, err = http.PostForm(proposeURL, vals)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
 
 	evChan := make(chan *tredd.TreddEvDecryptionKey)
 	sub, err := con.WatchEvDecryptionKey(&bind.WatchOpts{Context: ctx}, evChan)

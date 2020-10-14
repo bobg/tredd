@@ -93,7 +93,7 @@ func serve(args []string) {
 	log.Printf("listening on %s", listener.Addr())
 
 	http.Handle("/request", mid.Err(s.serve))
-	// http.HandleFunc("/propose-payment", s.revealKey)
+	http.Handle("/propose-payment", mid.Err(s.revealKey))
 	http.Serve(listener, nil)
 }
 
@@ -124,7 +124,7 @@ var big0 = big.NewInt(0)
 func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	var (
 		buyerHex              = req.FormValue("buyer")
-		clearRootStr          = req.FormValue("clearroot")
+		clearRootHex          = req.FormValue("clearroot")
 		tokenTypeHex          = req.FormValue("token")
 		amountStr             = req.FormValue("amount")
 		collateralStr         = req.FormValue("collateral")
@@ -135,7 +135,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	buyer := common.HexToAddress(buyerHex)
 
 	var clearRoot [32]byte
-	_, err := hex.Decode(clearRoot[:], []byte(clearRootStr))
+	_, err := hex.Decode(clearRoot[:], []byte(clearRootHex))
 	if err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding clear root")}
 	}
@@ -260,33 +260,38 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "writing response")
 	}
 
-	// TODO: queue a blockchain watcher that does revealKey when a Tredd contract with this cipher root shows up
-
 	return nil
 }
 
-// TODO: this is no longer an HTTP entrypoint; it's a callback based on a blockchain event
-func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
-	transferIDStr := req.Header.Get("X-Tredd-Transfer-Id")
+func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
+	var (
+		transferIDHex   = req.FormValue("transferid")
+		contractAddrHex = req.FormValue("contractaddr")
+	)
 
-	transferID, err := hex.DecodeString(transferIDStr)
+	transferID, err := hex.DecodeString(transferIDHex)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "decoding transfer ID: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding transfer ID")}
 	}
+
+	contractAddr := common.HexToAddress(contractAddrHex)
 
 	ctx := req.Context()
 	rec, err := s.getRecord(ctx, transferID)
 	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "finding transfer record: %s", err)
-		return
+		return errors.Wrap(err, "finding transfer record")
+	}
+	rec.contractAddr = &contractAddr
+	err = s.storeRecord(ctx, rec)
+	if err != nil {
+		return errors.Wrap(err, "updating transfer record")
 	}
 
 	con, receipt, err := tredd.RevealKey(
 		ctx,
 		s.client,
 		s.seller,
-		*rec.contractAddr,
+		contractAddr,
 		rec.key,
 		rec.tokenType,
 		rec.amount, rec.collateral,
@@ -294,21 +299,14 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		rec.clearRoot, rec.cipherRoot,
 	)
 	if err != nil {
-		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
-		return
+		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "constructing reveal-key transaction")}
 	}
 
 	log.Printf("revealed key in transaction %x", receipt.TxHash[:])
 
-	err = s.storeRecord(ctx, rec)
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "updating transfer record")
-		return
-	}
-
 	s.queueClaimPaymentHelper(ctx, rec, con)
 
-	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecord, error) {
