@@ -193,22 +193,22 @@ func get(args []string) {
 
 			refClearHash, err := clearHashes.Get(bchErr.Index)
 			if err != nil {
-				// xxx
+				log.Fatalf("Error getting clear hash %d: %s", bchErr.Index, err)
 			}
 			var refClearHashBuf [32]byte
 			copy(refClearHashBuf[:], refClearHash)
 			prefixedRefClearHash, err := tredd.PrefixHash(uint64(bchErr.Index), refClearHashBuf)
 			if err != nil {
-				// xxx
+				log.Fatalf("Error prefixing clear hash %d: %s", bchErr.Index, err)
 			}
 
 			refCipherChunk, err := cipherChunks.Get(bchErr.Index)
 			if err != nil {
-				// xxx
+				log.Fatalf("Error getting cipher chunk %d: %s", bchErr.Index, err)
 			}
 			prefixedRefCipherChunk, err := tredd.PrefixChunk(uint64(bchErr.Index), refCipherChunk)
 			if err != nil {
-				// xxx
+				log.Fatalf("Error prefixing cipher chunk %d: %s", bchErr.Index, err)
 			}
 
 			var (
@@ -218,28 +218,28 @@ func get(args []string) {
 
 			nchunks, err := cipherChunks.Len()
 			if err != nil {
-				// xxx
+				log.Fatalf("Error getting size of cipher-chunk store: %s", err)
 			}
 
 			for index := int64(0); index < nchunks; index++ {
 				clearHash, err := clearHashes.Get(index)
 				if err != nil {
-					// xxx
+					log.Fatalf("Error getting clear hash %d: %s", index, err)
 				}
 				var clearHashBuf [32]byte
 				copy(clearHashBuf[:], clearHash)
 				prefixedClearHash, err := tredd.PrefixHash(uint64(index), clearHashBuf)
 				if err != nil {
-					// xxx
+					log.Fatalf("Error prefixing clear hash %d: %s", index, err)
 				}
 
 				cipherChunk, err := cipherChunks.Get(index)
 				if err != nil {
-					// xxx
+					log.Fatalf("Error getting cipher chunk %d: %s", index, err)
 				}
 				prefixedCipherChunk, err := tredd.PrefixChunk(uint64(index), cipherChunk)
 				if err != nil {
-					// xxx
+					log.Fatalf("Error prefixing cipher chunk %d: %s", index, err)
 				}
 
 				clearTree.Add(prefixedClearHash)
@@ -260,7 +260,7 @@ func get(args []string) {
 			return
 
 		} else if err != nil {
-			log.Fatalf("Error decryption content: %s", err)
+			log.Fatalf("Error decrypting content: %s", err)
 		}
 		log.Printf("Complete, decrypted content is in %s", outFileName)
 
