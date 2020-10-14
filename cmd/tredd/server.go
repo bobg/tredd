@@ -160,13 +160,13 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	amount := new(big.Int)
 	amount.SetString(amountStr, 10)
 	if amount.Cmp(big0) < 1 {
-		// xxx amount <= 1
+		return fmt.Errorf("got amount = %s, should be 1 or greater", amount)
 	}
 
 	collateral := new(big.Int)
 	collateral.SetString(collateralStr, 10)
 	if collateral.Cmp(big0) < 1 {
-		// xxx collateral <= 1
+		return fmt.Errorf("got collateral = %s, should be 1 or greater", collateral)
 	}
 
 	err = s.checkPrice(tokenType, amount, collateral, clearRoot)
@@ -379,15 +379,17 @@ func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord,
 	time.AfterFunc(time.Until(rec.refundDeadline), func() {
 		tx, err := con.ClaimPayment(s.seller)
 		if err != nil {
-			// xxx
+			log.Printf("ERROR claiming payment: %s", err)
+			return
 		}
 		_, err = bind.WaitMined(ctx, s.client, tx)
 		if err != nil {
-			// xxx
+			log.Printf("ERROR awaiting claim-payment transaction: %s", err)
+			return
 		}
 		_, err = s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID)
 		if err != nil {
-			// xxx
+			log.Printf("ERROR deleting row from transfers table: %s", err)
 		}
 	})
 

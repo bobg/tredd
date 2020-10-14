@@ -143,7 +143,7 @@ func RevealKey(
 
 	gotRevealDeadlineSecs, err := con.MRevealDeadline(callOpts)
 	if err != nil {
-		// xxx
+		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
 	}
 	gotRevealDeadline := time.Unix(gotRevealDeadlineSecs, 0)
 	if !gotRevealDeadline.Equal(wantRevealDeadline) {
@@ -155,7 +155,7 @@ func RevealKey(
 
 	gotRefundDeadlineSecs, err := con.MRefundDeadline(callOpts)
 	if err != nil {
-		// xxx
+		return nil, nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
 	gotRefundDeadline := time.Unix(gotRefundDeadlineSecs, 0)
 	if !gotRefundDeadline.Equal(wantRefundDeadline) {
