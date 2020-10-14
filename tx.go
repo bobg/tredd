@@ -70,21 +70,16 @@ func ProposePayment(
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
-func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, contractAddr common.Address) (*types.Receipt, error) {
-	con, err := NewTredd(contractAddr, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "instantiating deployed contract")
-	}
-	return con.CallCancel(ctx, client, buyer)
-}
-
-func (con *Tredd) CallCancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts) (*types.Receipt, error) {
+func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, con *Tredd) (*types.Receipt, error) {
 	tx, err := con.Cancel(buyer)
 	if err != nil {
 		return nil, errors.Wrap(err, "canceling contract")
 	}
 	return bind.WaitMined(ctx, client, tx)
 }
+
+// The reveal deadline must still be this far in the future when RevealKey is called.
+const minRevealDur = 5 * time.Minute
 
 // RevealKey updates a Tredd contract on-chain by adding the decryption key.
 // It also approves a collateral transfer.
@@ -96,81 +91,96 @@ func RevealKey(
 	key [32]byte,
 	wantTokenType common.Address,
 	wantAmount, wantCollateral *big.Int,
+	wantRevealDeadline, wantRefundDeadline time.Time,
 	wantClearRoot, wantCipherRoot [32]byte,
-) (*types.Receipt, error) {
+) (*Tredd, *types.Receipt, error) {
 	con, err := NewTredd(contractAddr, client)
 	if err != nil {
-		return nil, errors.Wrap(err, "instantiating deployed contract")
+		return nil, nil, errors.Wrap(err, "instantiating deployed contract")
 	}
 
 	callOpts := &bind.CallOpts{Context: ctx}
 
 	gotTokenType, err := con.MTokenType(callOpts)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting mTokenType")
+		return nil, nil, errors.Wrap(err, "getting mTokenType")
 	}
 	if gotTokenType != wantTokenType {
-		return nil, fmt.Errorf("got token type %s, want %s", gotTokenType.Hex(), wantTokenType.Hex())
+		return nil, nil, fmt.Errorf("got token type %s, want %s", gotTokenType.Hex(), wantTokenType.Hex())
 	}
 
 	gotAmount, err := con.MAmount(callOpts)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting mAmount")
+		return nil, nil, errors.Wrap(err, "getting mAmount")
 	}
 	if gotAmount.Cmp(wantAmount) != 0 {
-		return nil, fmt.Errorf("got amount %s, want %s", gotAmount, wantAmount)
+		return nil, nil, fmt.Errorf("got amount %s, want %s", gotAmount, wantAmount)
 	}
 
 	gotCollateral, err := con.MCollateral(callOpts)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting mCollateral")
+		return nil, nil, errors.Wrap(err, "getting mCollateral")
 	}
 	if gotCollateral.Cmp(wantCollateral) != 0 {
-		return nil, fmt.Errorf("got collateral %s, want %s", gotCollateral, wantCollateral)
-	}
-
-	gotCipherRoot, err := con.MCipherRoot(callOpts)
-	if err != nil {
-		return nil, errors.Wrap(err, "getting mCipherRoot")
-	}
-	if gotCipherRoot != wantCipherRoot {
-		return nil, fmt.Errorf("got cipher root %x, want %x", gotCipherRoot[:], wantCipherRoot[:])
+		return nil, nil, fmt.Errorf("got collateral %s, want %s", gotCollateral, wantCollateral)
 	}
 
 	gotClearRoot, err := con.MClearRoot(callOpts)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting mClearRoot")
+		return nil, nil, errors.Wrap(err, "getting mClearRoot")
 	}
 	if gotClearRoot != wantClearRoot {
-		return nil, fmt.Errorf("got clear root %x, want %x", gotClearRoot[:], wantClearRoot[:])
+		return nil, nil, fmt.Errorf("got clear root %x, want %x", gotClearRoot[:], wantClearRoot[:])
 	}
 
-	gotRefundDeadline, err := con.MRefundDeadline(callOpts)
+	gotCipherRoot, err := con.MCipherRoot(callOpts)
 	if err != nil {
-		return nil, errors.Wrap(err, "getting mRefundDeadline")
+		return nil, nil, errors.Wrap(err, "getting mCipherRoot")
 	}
-	wantRefundDeadline := time.Now().Add(time.Hour) // TODO: parameterize?
-	if gotRefundDeadline > wantRefundDeadline.Unix() {
-		return nil, fmt.Errorf("refund deadline is more than %s in the future", time.Hour)
+	if gotCipherRoot != wantCipherRoot {
+		return nil, nil, fmt.Errorf("got cipher root %x, want %x", gotCipherRoot[:], wantCipherRoot[:])
+	}
+
+	gotRevealDeadlineSecs, err := con.MRevealDeadline(callOpts)
+	if err != nil {
+		// xxx
+	}
+	gotRevealDeadline := time.Unix(gotRevealDeadlineSecs, 0)
+	if !gotRevealDeadline.Equal(wantRevealDeadline) {
+		return nil, nil, fmt.Errorf("reveal deadline is %s, want %s", gotRevealDeadline, wantRevealDeadline)
+	}
+	if time.Until(gotRevealDeadline) < minRevealDur {
+		return nil, nil, fmt.Errorf("reveal deadline of %s is too soon, or in the past", gotRevealDeadline)
+	}
+
+	gotRefundDeadlineSecs, err := con.MRefundDeadline(callOpts)
+	if err != nil {
+		// xxx
+	}
+	gotRefundDeadline := time.Unix(gotRefundDeadlineSecs, 0)
+	if !gotRefundDeadline.Equal(wantRefundDeadline) {
+		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", gotRefundDeadline, wantRefundDeadline)
 	}
 
 	token, err := NewERC20(wantTokenType, client)
 	if err != nil {
-		return nil, errors.Wrap(err, "instantiating token")
+		return nil, nil, errors.Wrap(err, "instantiating token")
 	}
 
 	_, err = token.Approve(seller, contractAddr, wantCollateral)
 	if err != nil {
-		return nil, errors.Wrap(err, "approving token transfer")
+		return nil, nil, errors.Wrap(err, "approving token transfer")
 	}
 
 	// TODO: Does the approve transaction have to be mined before the reveal transaction will work?
 
 	tx, err := con.Reveal(seller, key)
 	if err != nil {
-		return nil, errors.Wrap(err, "invoking ClaimPayment")
+		return nil, nil, errors.Wrap(err, "invoking ClaimPayment")
 	}
-	return bind.WaitMined(ctx, client, tx)
+
+	receipt, err := bind.WaitMined(ctx, client, tx)
+	return con, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
 }
 
 // ClaimPayment constructs a seller-claims-payment transaction,
@@ -199,23 +209,7 @@ func ClaimRefund(
 	ctx context.Context,
 	client *ethclient.Client,
 	buyer *bind.TransactOpts,
-	contractAddr common.Address,
-	index int64,
-	cipherChunk []byte,
-	clearHash [32]byte,
-	cipherProof, clearProof merkle.Proof,
-) (*types.Receipt, error) {
-	con, err := NewTredd(contractAddr, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "instantiating deployed contract")
-	}
-	return con.CallRefund(ctx, client, buyer, index, cipherChunk, clearHash, cipherProof, clearProof)
-}
-
-func (con *Tredd) CallRefund(
-	ctx context.Context,
-	client *ethclient.Client,
-	buyer *bind.TransactOpts,
+	con *Tredd,
 	index int64,
 	cipherChunk []byte,
 	clearHash [32]byte,
@@ -254,25 +248,4 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
 	}
 	fmt.Fprintln(w, "}")
-}
-
-// ParseResult holds the values parsed from a Tredd contract.
-// If the transaction is complete
-// (i.e., the seller has added the "reveal-key" call),
-// all of the fields will be filled in.
-// If the transaction is partial, some fields will be uninitialized.
-type ParseResult struct {
-	ContractAddr common.Address
-
-	// Amount is the amount of the buyer's payment (not including the seller's collateral).
-	Amount    int64
-	TokenType string
-
-	ClearRoot      [32]byte
-	CipherRoot     [32]byte
-	RevealDeadline time.Time
-	RefundDeadline time.Time
-	Buyer          common.Address
-	Seller         common.Address
-	Key            [32]byte
 }

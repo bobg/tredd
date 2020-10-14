@@ -169,7 +169,7 @@ func get(args []string) {
 		return
 
 	case <-revealTimer.C:
-		receipt, err := con.CallCancel(ctx, client, buyer)
+		receipt, err := tredd.Cancel(ctx, client, buyer, con)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -191,6 +191,8 @@ func get(args []string) {
 			// Validation failed, claim a refund.
 
 			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
+
+			// xxx Use abi packed encoding
 
 			var (
 				refHash        [32 + binary.MaxVarintLen64]byte
@@ -246,7 +248,7 @@ func get(args []string) {
 
 			copy(clearHash[:], refHash[m:m+32])
 
-			receipt, err := con.CallRefund(ctx, client, buyer, bchErr.Index, refCipherChunk[m:m+len(g)], clearHash, cipherProof, clearProof) // TODO: range check
+			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk[m:m+len(g)], clearHash, cipherProof, clearProof) // TODO: range check
 			if err != nil {
 				log.Fatalf("Error constructing refund-claiming transaction: %s", err)
 			}

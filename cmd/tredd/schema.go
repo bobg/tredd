@@ -9,17 +9,18 @@ import (
 )
 
 const schema = `
-CREATE TABLE IF NOT EXISTS transfer_records (
+CREATE TABLE IF NOT EXISTS transfers (
   transfer_id BLOB NOT NULL PRIMARY KEY,
-  reveal_deadline_ms INTEGER NOT NULL,
-  refund_deadline_ms INTEGER NOT NULL,
-  cipher_root BLOB NOT NULL,
   clear_root BLOB NOT NULL,
-  amount INTEGER NOT NULL,
+  cipher_root BLOB NOT NULL,
+  contract_addr BLOB, -- NULL until discovered
   token_type BLOB NOT NULL,
-  key BLOB,
-  seller BLOB NOT NULL,
-  buyer BLOB
+  amount TEXT NOT NULL,
+  collateral TEXT NOT NULL,
+  buyer BLOB NOT NULL,
+  reveal_deadline_secs INTEGER NOT NULL,
+  refund_deadline_secs INTEGER NOT NULL,
+  key BLOB NOT NULL
 );
 `
 

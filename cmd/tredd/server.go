@@ -58,11 +58,16 @@ func serve(args []string) {
 		log.Fatal(err)
 	}
 
+	client, err := ethclient.Dial(*ethURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	s := &server{
 		db:     db,
 		dir:    *dir,
 		seller: seller,
-		ethURL: *ethURL,
+		client: client,
 	}
 
 	var transferIDs [][]byte
@@ -96,12 +101,17 @@ type server struct {
 	db     *sql.DB // transfer records and blockchain info
 	dir    string  // content
 	seller *bind.TransactOpts
-	ethURL string
+	client *ethclient.Client
 }
 
 type serverRecord struct {
-	tredd.ParseResult
-	transferID [32]byte
+	transferID                     [32]byte
+	contractAddr                   *common.Address // nil until discovered
+	tokenType                      common.Address
+	amount, collateral             *big.Int
+	revealDeadline, refundDeadline time.Time
+	buyer                          common.Address
+	key, clearRoot, cipherRoot     [32]byte
 }
 
 const (
@@ -109,14 +119,20 @@ const (
 	maxRefundDur = time.Hour
 )
 
+var big0 = big.NewInt(0)
+
 func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	var (
-		clearRootStr      = req.FormValue("clearroot")
-		amountStr         = req.FormValue("amount")
-		tokenType         = req.FormValue("token")
-		revealDeadlineStr = req.FormValue("revealdeadline")
-		refundDeadlineStr = req.FormValue("refunddeadline")
+		buyerHex              = req.FormValue("buyer")
+		clearRootStr          = req.FormValue("clearroot")
+		tokenTypeHex          = req.FormValue("token")
+		amountStr             = req.FormValue("amount")
+		collateralStr         = req.FormValue("collateral")
+		revealDeadlineSecsStr = req.FormValue("revealdeadline")
+		refundDeadlineSecsStr = req.FormValue("refunddeadline")
 	)
+
+	buyer := common.HexToAddress(buyerHex)
 
 	var clearRoot [32]byte
 	_, err := hex.Decode(clearRoot[:], []byte(clearRootStr))
@@ -139,66 +155,61 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "getting content type")
 	}
 
-	amount, err := strconv.ParseInt(amountStr, 10, 64)
-	if err != nil {
-		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing amount")}
-	}
-	if amount < 1 {
-		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrapf(err, "non-positive amount %d", amount)}
+	tokenType := common.HexToAddress(tokenTypeHex)
+
+	amount := new(big.Int)
+	amount.SetString(amountStr, 10)
+	if amount.Cmp(big0) < 1 {
+		// xxx amount <= 1
 	}
 
-	err = s.checkPrice(amount, tokenType, clearRoot)
+	collateral := new(big.Int)
+	collateral.SetString(collateralStr, 10)
+	if collateral.Cmp(big0) < 1 {
+		// xxx collateral <= 1
+	}
+
+	err = s.checkPrice(tokenType, amount, collateral, clearRoot)
 	if err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "proposed payment rejected")}
 	}
 
-	revealDeadlineMS, err := strconv.ParseUint(revealDeadlineStr, 10, 64)
+	revealDeadlineSecs, err := strconv.ParseInt(revealDeadlineSecsStr, 10, 64)
 	if err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing reveal deadline")}
 
 	}
-	revealDeadline := FromMillis(revealDeadlineMS)
+	revealDeadline := time.Unix(revealDeadlineSecs, 0)
 
 	if time.Until(revealDeadline) < minRevealDur {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: fmt.Errorf("reveal deadline too soon: %s, require %s", time.Until(revealDeadline), minRevealDur)}
 	}
 
-	refundDeadlineMS, err := strconv.ParseUint(refundDeadlineStr, 10, 64)
+	refundDeadlineSecs, err := strconv.ParseInt(refundDeadlineSecsStr, 10, 64)
 	if err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "parsing refund deadline")}
+
 	}
-	refundDeadline := FromMillis(refundDeadlineMS)
+	refundDeadline := time.Unix(refundDeadlineSecs, 0)
 
 	if refundDeadline.Sub(revealDeadline) > maxRefundDur {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: fmt.Errorf("refund deadline too much later after reveal deadline: %s, require %s", refundDeadline.Sub(revealDeadline), maxRefundDur)}
 	}
 
-	var key [32]byte
+	var key, transferID [32]byte
+
+	_, err = rand.Read(transferID[:])
+	if err != nil {
+		return errors.Wrap(err, "choosing transfer ID")
+	}
 	_, err = rand.Read(key[:])
 	if err != nil {
 		return errors.Wrap(err, "choosing cipher key")
 	}
 
-	rec := &serverRecord{
-		ParseResult: tredd.ParseResult{
-			Amount:         amount,
-			TokenType:      tokenType,
-			ClearRoot:      clearRoot,
-			RevealDeadline: revealDeadline,
-			RefundDeadline: refundDeadline,
-			Seller:         s.seller.From, // TODO: check this is right
-			Key:            key,
-		},
-	}
+	log.Printf("new transfer %x, clearRoot %x, payment %s/%s, collateral %s, deadlines %s/%s, key %x", transferID[:], clearRoot, amount, tokenType, collateral, revealDeadline, refundDeadline, key[:])
 
-	_, err = rand.Read(rec.transferID[:])
-	if err != nil {
-		return errors.Wrap(err, "choosing transfer ID")
-	}
-
-	log.Printf("new transfer %x, clearRoot %x, payment %d/%s, deadlines %s/%s, key %x", rec.transferID[:], clearRoot, amount, tokenType, revealDeadline, refundDeadline, key[:])
-
-	w.Header().Set("X-Tredd-Transfer-Id", hex.EncodeToString(rec.transferID[:]))
+	w.Header().Set("X-Tredd-Transfer-Id", hex.EncodeToString(transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
 
 	tmpfile, err := ioutil.TempFile("", "treddserve")
@@ -213,13 +224,26 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	if err != nil {
 		return errors.Wrap(err, "serving data")
 	}
+	var cipherRootBuf [32]byte
+	copy(cipherRootBuf[:], cipherRoot)
 
 	err = tmpfile.Close()
 	if err != nil {
 		return errors.Wrap(err, "closing response tempfile")
 	}
 
-	copy(rec.CipherRoot[:], cipherRoot)
+	rec := &serverRecord{
+		transferID:     transferID,
+		tokenType:      tokenType,
+		amount:         amount,
+		collateral:     collateral,
+		revealDeadline: revealDeadline,
+		refundDeadline: refundDeadline,
+		buyer:          buyer,
+		key:            key,
+		clearRoot:      clearRoot,
+		cipherRoot:     cipherRootBuf,
+	}
 
 	err = s.storeRecord(req.Context(), rec)
 	if err != nil {
@@ -258,27 +282,16 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client, err := ethclient.Dial(s.ethURL)
-	if err != nil {
-		httpErrf(w, http.StatusInternalServerError, "contacting Ethereum server: %s", err)
-		return
-	}
-
-	// TODO: populate these
-	var (
-		contractAddr, wantTokenType common.Address
-		wantAmount, wantCollateral  *big.Int
-	)
-
-	receipt, err := tredd.RevealKey(
+	con, receipt, err := tredd.RevealKey(
 		ctx,
-		client,
+		s.client,
 		s.seller,
-		contractAddr,
-		rec.Key,
-		wantTokenType,
-		wantAmount, wantCollateral,
-		rec.ClearRoot, rec.CipherRoot,
+		*rec.contractAddr,
+		rec.key,
+		rec.tokenType,
+		rec.amount, rec.collateral,
+		rec.revealDeadline, rec.refundDeadline,
+		rec.clearRoot, rec.cipherRoot,
 	)
 	if err != nil {
 		httpErrf(w, http.StatusBadRequest, "constructing reveal-key transaction: %s", err)
@@ -287,18 +300,13 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) {
 
 	log.Printf("revealed key in transaction %x", receipt.TxHash[:])
 
-	// TODO: parse the buyer out of the contract, if in fact we need it for storeRecord
-	// rec.Buyer = parsed.Buyer
-
 	err = s.storeRecord(ctx, rec)
 	if err != nil {
 		httpErrf(w, http.StatusInternalServerError, "updating transfer record")
 		return
 	}
 
-	s.queueClaimPaymentHelper(ctx, rec)
-
-	log.Printf("transfer %x: revealing key", transferID)
+	s.queueClaimPaymentHelper(ctx, rec, con)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -308,53 +316,88 @@ func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecor
 	copy(rec.transferID[:], transferID)
 
 	const q = `
-		SELECT key, contract_addr, clear_root, cipher_root, token_type, amount, reveal_deadline_ms, refund_deadline_ms, buyer, seller
-			FROM transfer_records
-			WHERE transfer_id = $1
+    SELECT contract_addr, token_type, amount, collateral, reveal_deadline_secs, refund_deadline_secs, buyer, key, clear_root, cipher_root
+    	FROM transfers
+    	WHERE transfer_id = $1
 	`
 
 	var (
-		revealDeadlineMS, refundDeadlineMS uint64
+		contractAddr                           []byte
+		revealDeadlineSecs, refundDeadlineSecs int64
+		amount, collateral                     string
 	)
-	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&rec.Key, &rec.ContractAddr, &rec.ClearRoot, &rec.CipherRoot, &rec.TokenType, &rec.Amount, &revealDeadlineMS, &refundDeadlineMS, &rec.Buyer, &rec.Seller)
+	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&contractAddr, &rec.tokenType, &amount, &collateral, &revealDeadlineSecs, &refundDeadlineSecs, &rec.buyer, &rec.key, &rec.clearRoot, &rec.cipherRoot)
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
 	}
-	rec.RevealDeadline = FromMillis(revealDeadlineMS)
-	rec.RefundDeadline = FromMillis(refundDeadlineMS)
+
+	if len(contractAddr) > 0 {
+		rec.contractAddr = new(common.Address)
+		copy(rec.contractAddr[:], contractAddr)
+	}
+
+	rec.amount = new(big.Int)
+	rec.amount.SetString(amount, 10)
+	rec.collateral = new(big.Int)
+	rec.collateral.SetString(collateral, 10)
+
+	rec.revealDeadline = time.Unix(revealDeadlineSecs, 0)
+	rec.refundDeadline = time.Unix(refundDeadlineSecs, 0)
+
 	return &rec, nil
 }
 
 func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 	const q = `
-		INSERT OR REPLACE INTO transfer_records
-			(transfer_id, key, contract_addr, clear_root, cipher_root, token_type, amount, reveal_deadline_ms, refund_deadline_ms, buyer, seller)
+		INSERT OR REPLACE INTO transfers
+			(transfer_id, contract_addr, token_type, amount, collateral, reveal_deadline_secs, refund_deadline_secs, buyer, key, clear_root, cipher_root)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
-	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], rec.Key, rec.ContractAddr, rec.ClearRoot, rec.CipherRoot, rec.TokenType, rec.Amount, Millis(rec.RevealDeadline), Millis(rec.RefundDeadline), rec.Buyer, rec.Seller)
+	var contractAddr interface{}
+	if rec.contractAddr != nil {
+		contractAddr = *rec.contractAddr
+	}
+	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], contractAddr, rec.tokenType, rec.amount.String(), rec.collateral.String(), rec.revealDeadline.Unix(), rec.refundDeadline.Unix(), rec.buyer, rec.key, rec.clearRoot, rec.cipherRoot)
 	return err
 }
 
 func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error {
 	rec, err := s.getRecord(ctx, transferID)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "reading transfer record")
 	}
-	s.queueClaimPaymentHelper(ctx, rec)
+	con, err := tredd.NewTredd(*rec.contractAddr, s.client)
+	if err != nil {
+		return errors.Wrap(err, "instantiating contract")
+	}
+	s.queueClaimPaymentHelper(ctx, rec, con)
 	return nil
 }
 
-func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord) {
+func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord, con *tredd.Tredd) {
+	time.AfterFunc(time.Until(rec.refundDeadline), func() {
+		tx, err := con.ClaimPayment(s.seller)
+		if err != nil {
+			// xxx
+		}
+		_, err = bind.WaitMined(ctx, s.client, tx)
+		if err != nil {
+			// xxx
+		}
+		_, err = s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID)
+		if err != nil {
+			// xxx
+		}
+	})
+
 	// TODO: set a timer that does tredd.ClaimPayment after the refund deadline
 	// It should also delete the row from transfer_records.
 }
 
-func (s *server) checkPrice(amount int64, tokenType string, clearRoot [32]byte) error {
-	if amount > 0 { // TODO: per-content pricing!
-		return nil
-	}
-	return errors.New("amount must be 1 or higher")
+func (s *server) checkPrice(tokenType common.Address, amount, collateral *big.Int, clearRoot [32]byte) error {
+	// TODO: express seller preferences here (accepted currencies, per-item pricing, max collateral).
+	return nil
 }
 
 func httpErrf(w http.ResponseWriter, code int, msgfmt string, args ...interface{}) {
