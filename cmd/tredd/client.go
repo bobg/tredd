@@ -239,28 +239,32 @@ func get(args []string) {
 			var (
 				clearTree  = merkle.NewProofTree(sha256.New(), refHash[:m+32])
 				cipherTree = merkle.NewProofTree(sha256.New(), refCipherChunk[:m+len(g)])
-				hasher     = sha256.New()
 			)
 			nchunks, err := cipherChunks.Len()
 			if err != nil {
 				log.Fatalf("getting length of cipher chunk store %s: %s", cipherChunks.filename, err)
 			}
 			for index := uint64(0); index < uint64(nchunks); index++ {
-				var chunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
-				m := binary.PutUvarint(chunk[:], index)
+				var prefixedChunk [tredd.ChunkSize + binary.MaxVarintLen64]byte
+
+				m := binary.PutUvarint(prefixedChunk[:], index)
 				ci, err := cipherChunks.Get(index)
 				if err != nil {
 					log.Fatalf("getting cipher chunk %d from %s: %s", bchErr.Index, cipherChunks.filename, err)
 				}
-				copy(chunk[m:], ci)
+				copy(prefixedChunk[m:], ci)
 				n := len(ci)
 
-				var h [32 + binary.MaxVarintLen64]byte
-				binary.PutUvarint(h[:], index)
-				merkle.LeafHash(hasher, h[:m], chunk[:m+n])
+				clearHash, err := clearHashes.Get(index)
+				if err != nil {
+					log.Fatalf("getting hash %d from %s: %s", index, clearHashes.filename, err)
+				}
+				var prefixedClearHash [32 + binary.MaxVarintLen64]byte
+				binary.PutUvarint(prefixedClearHash[:], index)
+				copy(prefixedClearHash[m:m+32], clearHash)
 
-				clearTree.Add(h[:m+32])
-				cipherTree.Add(chunk[:m+n])
+				clearTree.Add(prefixedClearHash[:m+32])
+				cipherTree.Add(prefixedChunk[:m+n])
 			}
 
 			var (
