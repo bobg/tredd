@@ -5,7 +5,7 @@ import "github.com/ethereum/go-ethereum/accounts/abi"
 var (
 	uint64ABIType = mustABIType("uint64")
 	bytesABIType  = mustABIType("bytes")
-	byte32ABIType = mustABIType("byte32")
+	byte32ABIType = mustABIType("bytes32")
 )
 
 var prefixedChunkArgTypes = abi.Arguments{

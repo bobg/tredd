@@ -3,7 +3,6 @@ package tredd
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"io"
 
 	"github.com/bobg/merkle"
@@ -24,18 +23,14 @@ var (
 // Both Merkle root hashes are computed from values prepended with the chunk index number.
 func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
-		wasPartial            bool // only the final chunk may have a partial length.
-		clearMT               = merkle.NewTree(sha256.New())
-		cipherMT              = merkle.NewTree(sha256.New())
-		clearHashWithPrefix   [32 + binary.MaxVarintLen64]byte
-		cipherChunkWithPrefix [ChunkSize + binary.MaxVarintLen64]byte
+		wasPartial bool // only the final chunk may have a partial length.
+		clearMT    = merkle.NewTree(sha256.New())
+		cipherMT   = merkle.NewTree(sha256.New())
 	)
 
 	for index := uint64(0); ; index++ {
-		m := binary.PutUvarint(clearHashWithPrefix[:], index)
-		binary.PutUvarint(cipherChunkWithPrefix[:], index)
-
-		_, err := io.ReadFull(r, clearHashWithPrefix[m:m+32])
+		var clearHash [32]byte
+		_, err := io.ReadFull(r, clearHash[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			break
@@ -44,13 +39,20 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			return nil, errors.Wrapf(err, "reading clear hash %d", index)
 		}
 
-		err = clearHashes.Add(clearHashWithPrefix[m : m+32])
+		err = clearHashes.Add(clearHash[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing clear hash %d", index)
 		}
-		clearMT.Add(clearHashWithPrefix[:m+32])
 
-		n, err := io.ReadFull(r, cipherChunkWithPrefix[m:m+ChunkSize])
+		prefixedClearHash, err := PrefixHash(index, clearHash)
+		if err != nil {
+			return nil, errors.Wrapf(err, "prefixing clear hash %d", index)
+		}
+
+		clearMT.Add(prefixedClearHash)
+
+		var cipherChunk [ChunkSize]byte
+		n, err := io.ReadFull(r, cipherChunk[:])
 		if err == io.EOF {
 			// "The error is EOF only if no bytes were read."
 			return nil, errors.Wrapf(errMissingChunk, "reading chunk %d", index)
@@ -64,11 +66,17 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			return nil, errors.Wrapf(err, "reading cipher chunk %d", index)
 		}
 
-		err = cipherChunks.Add(cipherChunkWithPrefix[m : m+n])
+		err = cipherChunks.Add(cipherChunk[:n])
 		if err != nil {
 			return nil, errors.Wrapf(err, "storing cipher chunk %d", index)
 		}
-		cipherMT.Add(cipherChunkWithPrefix[:m+n])
+
+		prefixedCipherChunk, err := PrefixChunk(index, cipherChunk[:n])
+		if err != nil {
+			return nil, errors.Wrapf(err, "prefixing cipher chunk %d", index)
+		}
+
+		cipherMT.Add(prefixedCipherChunk)
 	}
 
 	gotClearRoot := clearMT.Root()
