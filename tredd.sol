@@ -94,6 +94,7 @@ contract Tredd {
   address public mSeller;
 
   // The type of the token the buyer proposes to pay with.
+  // A type of 0 means ETH.
   ERC20 public mTokenType;
 
   // The amount that the buyer proposes to pay.
@@ -147,15 +148,15 @@ contract Tredd {
     mRevealed = false;
   }
 
-  // The buyer adds their payment.
-  // The buyer must first have approved the token transfer.
-  function pay() public {
-    require (msg.sender == mBuyer);
-    require (block.timestamp < uint(mRevealDeadline));
+  function isEth() internal view returns (bool) {
+    return uint160(address(mTokenType)) == 0;
+  }
 
-    uint balance = mTokenType.balanceOf(address(this));
-    require (balance < mAmount);
-    require (mTokenType.transferFrom(mBuyer, address(this), mAmount - balance));
+  function paid() public view returns (uint) {
+    if (isEth()) {
+      return address(this).balance;
+    }
+    return mTokenType.balanceOf(address(this));
   }
 
   // The reveal deadline has passed without reveal being called.
@@ -165,9 +166,11 @@ contract Tredd {
     require (block.timestamp >= uint(mRevealDeadline));
     require (!mRevealed);
 
-    uint balance = mTokenType.balanceOf(address(this));
-    if (balance > 0) {
-      mTokenType.transfer(mBuyer, balance);
+    if (!isEth()) {
+      uint balance = mTokenType.balanceOf(address(this));
+      if (balance > 0) {
+        mTokenType.transfer(mBuyer, balance);
+      }
     }
 
     selfdestruct(msg.sender);
@@ -179,13 +182,17 @@ contract Tredd {
   // Before calling this,
   // the seller must approve a transfer of the required collateral,
   // and should verify that the buyer has made their payment.
-  function reveal(bytes32 decryptionKey) public {
+  function reveal(bytes32 decryptionKey) public payable {
     require (msg.sender == mSeller);
     require (block.timestamp < uint(mRevealDeadline));
     require (!mRevealed);
 
     // Add collateral.
-    require (mTokenType.transferFrom(mSeller, address(this), mCollateral));
+    if (isEth()) {
+      require (msg.value >= mCollateral);
+    } else {
+      require (mTokenType.transferFrom(mSeller, address(this), mCollateral));
+    }
 
     mDecryptionKey = decryptionKey;
     mRevealed = true;
@@ -254,7 +261,9 @@ contract Tredd {
     require (sha256(abi.encodePacked(index, decrypt(cipherChunk, index))) != clearHash);
 
     // 4. Transfer the balance in this contract to the buyer.
-    require (mTokenType.transfer(mBuyer, mAmount+mCollateral));
+    if (!isEth()) {
+      require (mTokenType.transfer(mBuyer, mAmount+mCollateral));
+    }
 
     // 5. Self destruct.
     selfdestruct(msg.sender);
@@ -264,7 +273,10 @@ contract Tredd {
   function claimPayment() public {
     require (msg.sender == mSeller);
     require (block.timestamp >= uint(mRefundDeadline));
-    require (mTokenType.transfer(mSeller, mAmount+mCollateral));
+
+    if (isEth()) {
+      require (mTokenType.transfer(mSeller, mAmount+mCollateral));
+    }
 
     selfdestruct(msg.sender);
   }

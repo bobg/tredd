@@ -36,6 +36,8 @@ func main() {
 		serve(os.Args[2:])
 	case "utxos":
 		utxos(os.Args[2:])
+	case "abi":
+		fmt.Println(tredd.TreddABI)
 	default:
 		log.Fatalf("unknown subcommand %s", os.Args[1])
 	}

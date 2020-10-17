@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
@@ -29,39 +28,35 @@ func ProposePayment(
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
 ) (common.Address, *Tredd, error) {
-	token, err := NewERC20(tokenType, client)
-	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "instantiating token")
-	}
-
 	contractAddr, deployTx, con, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
 		return common.Address{}, nil, errors.Wrap(err, "deploying contract")
 	}
 
-	approveTx, err := token.Approve(buyer, contractAddr, amount)
+	_, err = bind.WaitMined(ctx, client, deployTx)
 	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "approving token transfer")
+		return common.Address{}, nil, errors.Wrap(err, "waiting for contract deployment")
 	}
 
-	// TODO: double-check that these WaitMined calls are needed before the Pay call.
-	g, ctx2 := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		_, err := bind.WaitMined(ctx2, client, deployTx)
-		return err
-	})
-	g.Go(func() error {
-		_, err := bind.WaitMined(ctx2, client, approveTx)
-		return err
-	})
-	err = g.Wait()
-	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "waiting for contract deployment and/or transfer approval")
-	}
+	var payTx *types.Transaction
+	if IsETH(tokenType) {
+		buyer := *buyer
+		buyer.Value = amount
 
-	payTx, err := con.Pay(buyer)
-	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "making payment")
+		raw := &TreddRaw{Contract: con}
+		payTx, err = raw.Transfer(&buyer)
+		if err != nil {
+			return common.Address{}, nil, errors.Wrap(err, "making payment")
+		}
+	} else {
+		token, err := NewERC20(tokenType, client)
+		if err != nil {
+			return common.Address{}, nil, errors.Wrap(err, "instantiating token")
+		}
+		payTx, err = token.Transfer(buyer, contractAddr, amount)
+		if err != nil {
+			return common.Address{}, nil, errors.Wrap(err, "making payment")
+		}
 	}
 
 	// Wait for payTx to be mined on-chain.
@@ -162,32 +157,39 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", gotRefundDeadline, wantRefundDeadline)
 	}
 
-	token, err := NewERC20(wantTokenType, client)
+	paidAmount, err := con.Paid(callOpts)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "instantiating token")
-	}
-
-	paidAmount, err := token.BalanceOf(callOpts, contractAddr)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "checking contract balance")
+		return nil, nil, errors.Wrap(err, "checking paid amount")
 	}
 	if paidAmount.Cmp(wantAmount) < 0 {
 		return nil, nil, fmt.Errorf("contract balance is %s, want %s", paidAmount, wantAmount)
 	}
 
-	_, err = token.Approve(seller, contractAddr, wantCollateral)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "approving token transfer")
+	if !IsETH(wantTokenType) {
+		token, err := NewERC20(wantTokenType, client)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "instantiating token")
+		}
+		_, err = token.Approve(seller, contractAddr, wantCollateral)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "approving token transfer")
+		}
+		// TODO: Does the approve transaction have to be mined before the reveal transaction will work?
 	}
 
-	// TODO: Does the approve transaction have to be mined before the reveal transaction will work?
+	revealTxOpts := seller
+	if IsETH(wantTokenType) {
+		seller := *seller
+		seller.Value = wantCollateral
+		revealTxOpts = &seller
+	}
 
-	tx, err := con.Reveal(seller, key)
+	revealTx, err := con.Reveal(revealTxOpts, key)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "invoking ClaimPayment")
 	}
 
-	receipt, err := bind.WaitMined(ctx, client, tx)
+	receipt, err := bind.WaitMined(ctx, client, revealTx)
 	return con, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
 }
 
@@ -256,4 +258,8 @@ func renderProof(w io.Writer, proof merkle.Proof) {
 		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
 	}
 	fmt.Fprintln(w, "}")
+}
+
+func IsETH(tokenType common.Address) bool {
+	return tokenType == common.Address{}
 }

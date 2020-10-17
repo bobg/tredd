@@ -155,7 +155,10 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "getting content type")
 	}
 
-	tokenType := common.HexToAddress(tokenTypeHex)
+	var tokenType common.Address
+	if tokenTypeHex != "" {
+		tokenType = common.HexToAddress(tokenTypeHex)
+	}
 
 	amount := new(big.Int)
 	amount.SetString(amountStr, 10)
@@ -398,9 +401,4 @@ func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord,
 func (s *server) checkPrice(tokenType common.Address, amount, collateral *big.Int, clearRoot [32]byte) error {
 	// TODO: express seller preferences here (accepted currencies, per-item pricing, max collateral).
 	return nil
-}
-
-func httpErrf(w http.ResponseWriter, code int, msgfmt string, args ...interface{}) {
-	http.Error(w, fmt.Sprintf(msgfmt, args...), code)
-	log.Printf(msgfmt, args...)
 }

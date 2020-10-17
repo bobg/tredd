@@ -33,7 +33,7 @@ func get(args []string) {
 
 	var (
 		clearRootHex      = fs.String("hash", "", "clear-chunk Merkle root hash of requested file")
-		tokenTypeStr      = fs.String("token", "", "token type (ERC20 hex address) of proposed payment")
+		tokenTypeStr      = fs.String("token", "", "token type (ERC20 hex address) of proposed payment, or omit for ETH")
 		amountStr         = fs.String("amount", "1", "amount of proposed payment")
 		collateralStr     = fs.String("collateral", "1", "amount of proposed collateral")
 		revealDeadlineDur = fs.Duration("reveal", 15*time.Minute, "time until reveal deadline, in time.ParseDuration format")
@@ -87,16 +87,21 @@ func get(args []string) {
 		log.Fatal(err)
 	}
 
-	tokenType := common.HexToAddress(*tokenTypeStr)
+	var tokenType common.Address
+	if *tokenTypeStr != "" {
+		tokenType = common.HexToAddress(*tokenTypeStr)
+	}
 
 	vals := url.Values{}
 	vals.Add("buyer", buyer.From.Hex())
 	vals.Add("clearroot", *clearRootHex)
-	vals.Add("token", tokenType.Hex())
 	vals.Add("amount", amount.String())
 	vals.Add("collateral", collateral.String())
 	vals.Add("revealdeadline", strconv.FormatInt(revealDeadline.Unix(), 10))
 	vals.Add("refunddeadline", strconv.FormatInt(refundDeadline.Unix(), 10)) // TODO: range check
+	if tokenType != (common.Address{}) {
+		vals.Add("token", tokenType.Hex())
+	}
 
 	log.Print("requesting content")
 	resp, err := http.PostForm(requestURL, vals)
