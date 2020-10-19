@@ -3,7 +3,6 @@ package tredd
 import (
 	"context"
 	"fmt"
-	"io"
 	"math/big"
 	"time"
 
@@ -243,21 +242,6 @@ func toTreddProof(proof merkle.Proof) []TreddProofStep {
 		result = append(result, TreddProofStep{H: step.H, Left: step.Left})
 	}
 	return result
-}
-
-func renderProof(w io.Writer, proof merkle.Proof) {
-	fmt.Fprint(w, "{")
-	for i := len(proof) - 1; i >= 0; i-- {
-		if i < len(proof)-1 {
-			fmt.Fprint(w, ", ")
-		}
-		var isLeft int64
-		if proof[i].Left {
-			isLeft = 1
-		}
-		fmt.Fprintf(w, "x'%x', %d", proof[i].H, isLeft)
-	}
-	fmt.Fprintln(w, "}")
 }
 
 func IsETH(tokenType common.Address) bool {
