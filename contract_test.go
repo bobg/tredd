@@ -13,11 +13,12 @@ import (
 
 	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/crypto"
+
+	"github.com/bobg/tredd/testutil"
 )
+
+var zeroes [32]byte
 
 func TestSolidityMerkleCheck(t *testing.T) {
 	f, err := os.Open("testdata/udhr.txt")
@@ -41,40 +42,10 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		chunks = append(chunks, buf[:n])
 	}
 
-	hasher := sha256.New()
-	for _, refchunk := range chunks {
-		tree := merkle.NewProofTree(hasher, refchunk)
-		for _, chunk := range chunks {
-			tree.Add(chunk)
-		}
-		root := tree.Root()
-		proof := tree.Proof()
-
-		testMerkleCheck(t, proof, root, refchunk)
-	}
-}
-
-var zeroes [32]byte
-
-func testMerkleCheck(t *testing.T, proof merkle.Proof, wantRoot, refchunk []byte) {
-	buyerKey, err := crypto.GenerateKey()
+	buyer, seller, client, err := testutil.Harness()
 	if err != nil {
 		t.Fatal(err)
 	}
-	sellerKey, err := crypto.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var (
-		buyer  = bind.NewKeyedTransactor(buyerKey)
-		seller = bind.NewKeyedTransactor(sellerKey)
-		alloc  = core.GenesisAlloc{
-			buyer.From:  core.GenesisAccount{Balance: big.NewInt(1000000000)},
-			seller.From: core.GenesisAccount{Balance: big.NewInt(1000000000)},
-		}
-		client = backends.NewSimulatedBackend(alloc, 4712388) // This number comes from https://goethereumbook.org/client-simulated/
-	)
 
 	_, tx, con, err := DeployTredd(buyer, client, seller.From, common.Address{}, big.NewInt(1), big.NewInt(1), zeroes, zeroes, time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix())
 	if err != nil {
@@ -90,26 +61,36 @@ func testMerkleCheck(t *testing.T, proof merkle.Proof, wantRoot, refchunk []byte
 		t.Fatal(err)
 	}
 
-	var wantRootBuf [32]byte
-	copy(wantRootBuf[:], wantRoot)
+	hasher := sha256.New()
+	for _, refchunk := range chunks {
+		tree := merkle.NewProofTree(hasher, refchunk)
+		for _, chunk := range chunks {
+			tree.Add(chunk)
+		}
+		root := tree.Root()
+		proof := tree.Proof()
 
-	callopts := new(bind.CallOpts)
+		var wantRootBuf [32]byte
+		copy(wantRootBuf[:], root)
 
-	ok, err := con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("proof validation failed")
-	}
+		callopts := new(bind.CallOpts)
 
-	refchunk[0] ^= 1
-	ok, err = con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Error("proof validation succeeded unexpectedly")
+		ok, err := con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Error("proof validation failed")
+		}
+
+		refchunk[0] ^= 1
+		ok, err = con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Error("proof validation succeeded unexpectedly")
+		}
 	}
 }
 
