@@ -21,6 +21,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
 
+	"github.com/bobg/tredd/contract"
+
 	"github.com/bobg/tredd"
 )
 
@@ -163,7 +165,7 @@ func get(args []string) {
 	}
 	defer resp.Body.Close()
 
-	evChan := make(chan *tredd.TreddEvDecryptionKey)
+	evChan := make(chan *contract.TreddEvDecryptionKey)
 	sub, err := con.WatchEvDecryptionKey(&bind.WatchOpts{Context: ctx}, evChan)
 	if err != nil {
 		log.Fatal(err)
@@ -213,19 +215,13 @@ func get(args []string) {
 			}
 			var refClearHashBuf [32]byte
 			copy(refClearHashBuf[:], refClearHash)
-			prefixedRefClearHash, err := tredd.PrefixHash(uint64(bchErr.Index), refClearHashBuf)
-			if err != nil {
-				log.Fatalf("Error prefixing clear hash %d: %s", bchErr.Index, err)
-			}
+			prefixedRefClearHash := tredd.PrefixHash(uint64(bchErr.Index), refClearHashBuf)
 
 			refCipherChunk, err := cipherChunks.Get(bchErr.Index)
 			if err != nil {
 				log.Fatalf("Error getting cipher chunk %d: %s", bchErr.Index, err)
 			}
-			prefixedRefCipherChunk, err := tredd.PrefixChunk(uint64(bchErr.Index), refCipherChunk)
-			if err != nil {
-				log.Fatalf("Error prefixing cipher chunk %d: %s", bchErr.Index, err)
-			}
+			prefixedRefCipherChunk := tredd.PrefixChunk(uint64(bchErr.Index), refCipherChunk)
 
 			var (
 				clearTree  = merkle.NewProofTree(sha256.New(), prefixedRefClearHash)
@@ -244,19 +240,13 @@ func get(args []string) {
 				}
 				var clearHashBuf [32]byte
 				copy(clearHashBuf[:], clearHash)
-				prefixedClearHash, err := tredd.PrefixHash(uint64(index), clearHashBuf)
-				if err != nil {
-					log.Fatalf("Error prefixing clear hash %d: %s", index, err)
-				}
+				prefixedClearHash := tredd.PrefixHash(uint64(index), clearHashBuf)
 
 				cipherChunk, err := cipherChunks.Get(index)
 				if err != nil {
 					log.Fatalf("Error getting cipher chunk %d: %s", index, err)
 				}
-				prefixedCipherChunk, err := tredd.PrefixChunk(uint64(index), cipherChunk)
-				if err != nil {
-					log.Fatalf("Error prefixing cipher chunk %d: %s", index, err)
-				}
+				prefixedCipherChunk := tredd.PrefixChunk(uint64(index), cipherChunk)
 
 				clearTree.Add(prefixedClearHash)
 				cipherTree.Add(prefixedCipherChunk)

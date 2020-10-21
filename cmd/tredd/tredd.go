@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd"
+	"github.com/bobg/tredd/contract"
 )
 
 func main() {
@@ -37,7 +37,7 @@ func main() {
 	case "utxos":
 		utxos(os.Args[2:])
 	case "abi":
-		fmt.Println(tredd.TreddABI)
+		fmt.Println(contract.TreddABI)
 	default:
 		log.Fatalf("unknown subcommand %s", os.Args[1])
 	}
@@ -89,10 +89,10 @@ func addFile(file, dir, contentType string) error {
 			contentType = http.DetectContentType(chunk[:n])
 		}
 
-		var clearHashWithPrefix [32 + binary.MaxVarintLen64]byte
-		m := binary.PutUvarint(clearHashWithPrefix[:], index)
-		merkle.LeafHash(hasher, clearHashWithPrefix[:m], chunk[:n])
-		tree.Add(clearHashWithPrefix[:m+32])
+		var clearHash [32]byte
+		merkle.LeafHash(hasher, clearHash[:0], chunk[:n])
+		prefixedClearHash := tredd.PrefixHash(index, clearHash)
+		tree.Add(prefixedClearHash)
 	}
 
 	var clearHash [32]byte

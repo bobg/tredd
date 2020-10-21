@@ -4,16 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"io"
-	"math/big"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/bobg/tredd/testutil"
 )
@@ -42,21 +38,18 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		chunks = append(chunks, buf[:n])
 	}
 
-	buyer, seller, client, err := testutil.Harness()
+	harness, err := testutil.NewHarness()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	_, tx, con, err := DeployTredd(buyer, client, seller.From, common.Address{}, big.NewInt(1), big.NewInt(1), zeroes, zeroes, time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	client.Commit()
 
 	ctx := context.Background()
+	err = harness.Deploy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, err = client.TransactionReceipt(ctx, tx.Hash())
+	con, err := harness.Contract()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,12 +88,6 @@ func TestSolidityMerkleCheck(t *testing.T) {
 }
 
 func TestDecrypt(t *testing.T) {
-	var key [32]byte
-	_, err := hex.Decode(key[:], []byte(testKeyHex))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	f, err := os.Open("testdata/udhr.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -116,10 +103,57 @@ func TestDecrypt(t *testing.T) {
 
 	copy(cipher[:], clear[:])
 
-	Crypt(key, cipher[:], 0)
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("encrypting did nothing?!")
 	}
 
-	// TODO: test solidity decryption of `cipher` produces `clear`
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cipher[:], clear[:]) {
+		t.Fatal("Crypt(Crypt(clear)) != clear ?!")
+	}
+
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness, err := testutil.NewHarness()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	err = harness.Deploy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = harness.Reveal(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callopts := new(bind.CallOpts)
+
+	con, err := harness.Contract()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := con.Decrypt(callopts, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(got, clear[:]) {
+		t.Error("mismatch")
+	}
 }

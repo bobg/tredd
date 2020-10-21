@@ -25,6 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
 
+	"github.com/bobg/tredd/contract"
+
 	"github.com/bobg/tredd"
 )
 
@@ -368,7 +370,7 @@ func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error
 	if err != nil {
 		return errors.Wrap(err, "reading transfer record")
 	}
-	con, err := tredd.NewTredd(*rec.contractAddr, s.client)
+	con, err := contract.NewTredd(*rec.contractAddr, s.client)
 	if err != nil {
 		return errors.Wrap(err, "instantiating contract")
 	}
@@ -376,7 +378,7 @@ func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error
 	return nil
 }
 
-func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord, con *tredd.Tredd) {
+func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord, con *contract.Tredd) {
 	time.AfterFunc(time.Until(rec.refundDeadline), func() {
 		tx, err := con.ClaimPayment(s.seller)
 		if err != nil {

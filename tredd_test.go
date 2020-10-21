@@ -13,8 +13,8 @@ const testKeyHex = "17f9d2125c385c2b7626034a506e524b971d9487daeb688538101c4d7d6d
 
 func TestServeGetDecrypt(t *testing.T) {
 	const (
-		clearRootHex      = "394c30333e8ec004b2de9fc3b08cd6503c2e21a039b68520127a85a93166469f"
-		wantCipherRootHex = "3b73ab5cce30c2cfa73ac29d2ae9de94154c7fd98070e676d8be215d4ecb74d2"
+		clearRootHex      = "7ac16d5bd4905c1ca0bfbdca8cb0dbe5c450e359a17923569deb03ba32177c68"
+		wantCipherRootHex = "36f2a7918a9f710dbbaed6f53444ed780cf3fc070165734d9a46f13992ed74a1"
 	)
 
 	var key [32]byte

@@ -44,10 +44,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			return nil, errors.Wrapf(err, "storing clear hash %d", index)
 		}
 
-		prefixedClearHash, err := PrefixHash(index, clearHash)
-		if err != nil {
-			return nil, errors.Wrapf(err, "prefixing clear hash %d", index)
-		}
+		prefixedClearHash := PrefixHash(index, clearHash)
 
 		clearMT.Add(prefixedClearHash)
 
@@ -71,10 +68,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			return nil, errors.Wrapf(err, "storing cipher chunk %d", index)
 		}
 
-		prefixedCipherChunk, err := PrefixChunk(index, cipherChunk[:n])
-		if err != nil {
-			return nil, errors.Wrapf(err, "prefixing cipher chunk %d", index)
-		}
+		prefixedCipherChunk := PrefixChunk(index, cipherChunk[:n])
 
 		cipherMT.Add(prefixedCipherChunk)
 	}

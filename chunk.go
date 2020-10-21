@@ -34,10 +34,7 @@ func Crypt(key [32]byte, chunk []byte, index int64) error {
 		// compute subchunk key
 		hasher.Reset()
 
-		inp, err := cryptArgTypes.Pack(key, uint64(index), uint64(i))
-		if err != nil {
-			return err
-		}
+		inp := SubchunkKeyParams(key, uint64(index), uint64(i))
 
 		hasher.Write(inp)
 		hasher.Sum(subkey[:0])

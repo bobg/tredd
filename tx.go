@@ -12,6 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
+
+	"github.com/bobg/tredd/contract"
 )
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
@@ -26,8 +28,8 @@ func ProposePayment(
 	amount, collateral *big.Int,
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
-) (common.Address, *Tredd, error) {
-	contractAddr, deployTx, con, err := DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
+) (common.Address, *contract.Tredd, error) {
+	contractAddr, deployTx, con, err := contract.DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
 		return common.Address{}, nil, errors.Wrap(err, "deploying contract")
 	}
@@ -42,13 +44,13 @@ func ProposePayment(
 		buyer := *buyer
 		buyer.Value = amount
 
-		raw := &TreddRaw{Contract: con}
+		raw := &contract.TreddRaw{Contract: con}
 		payTx, err = raw.Transfer(&buyer)
 		if err != nil {
 			return common.Address{}, nil, errors.Wrap(err, "making payment")
 		}
 	} else {
-		token, err := NewERC20(tokenType, client)
+		token, err := contract.NewERC20(tokenType, client)
 		if err != nil {
 			return common.Address{}, nil, errors.Wrap(err, "instantiating token")
 		}
@@ -64,7 +66,7 @@ func ProposePayment(
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
-func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, con *Tredd) (*types.Receipt, error) {
+func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, con *contract.Tredd) (*types.Receipt, error) {
 	tx, err := con.Cancel(buyer)
 	if err != nil {
 		return nil, errors.Wrap(err, "canceling contract")
@@ -87,8 +89,8 @@ func RevealKey(
 	wantAmount, wantCollateral *big.Int,
 	wantRevealDeadline, wantRefundDeadline time.Time,
 	wantClearRoot, wantCipherRoot [32]byte,
-) (*Tredd, *types.Receipt, error) {
-	con, err := NewTredd(contractAddr, client)
+) (*contract.Tredd, *types.Receipt, error) {
+	con, err := contract.NewTredd(contractAddr, client)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "instantiating deployed contract")
 	}
@@ -165,7 +167,7 @@ func RevealKey(
 	}
 
 	if !IsETH(wantTokenType) {
-		token, err := NewERC20(wantTokenType, client)
+		token, err := contract.NewERC20(wantTokenType, client)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "instantiating token")
 		}
@@ -200,7 +202,7 @@ func ClaimPayment(
 	seller *bind.TransactOpts,
 	contractAddr common.Address,
 ) (*types.Receipt, error) {
-	con, err := NewTredd(contractAddr, client)
+	con, err := contract.NewTredd(contractAddr, client)
 	if err != nil {
 		return nil, errors.Wrap(err, "instantiating deployed contract")
 	}
@@ -218,7 +220,7 @@ func ClaimRefund(
 	ctx context.Context,
 	client *ethclient.Client,
 	buyer *bind.TransactOpts,
-	con *Tredd,
+	con *contract.Tredd,
 	index int64,
 	cipherChunk []byte,
 	clearHash [32]byte,
@@ -236,14 +238,16 @@ func ClaimRefund(
 	return bind.WaitMined(ctx, client, tx)
 }
 
-func toTreddProof(proof merkle.Proof) []TreddProofStep {
-	result := make([]TreddProofStep, 0, len(proof))
+func toTreddProof(proof merkle.Proof) []contract.TreddProofStep {
+	result := make([]contract.TreddProofStep, 0, len(proof))
 	for _, step := range proof {
-		result = append(result, TreddProofStep{H: step.H, Left: step.Left})
+		result = append(result, contract.TreddProofStep{H: step.H, Left: step.Left})
 	}
 	return result
 }
 
+var ethAddr common.Address
+
 func IsETH(tokenType common.Address) bool {
-	return tokenType == common.Address{}
+	return tokenType == ethAddr
 }
