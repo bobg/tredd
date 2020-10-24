@@ -148,6 +148,8 @@ contract Tredd {
     mRevealed = false;
   }
 
+  receive() external payable {}
+
   function isEth() internal view returns (bool) {
     return uint160(address(mTokenType)) == 0;
   }
@@ -274,7 +276,7 @@ contract Tredd {
     require (msg.sender == mSeller);
     require (block.timestamp >= uint(mRefundDeadline));
 
-    if (isEth()) {
+    if (!isEth()) {
       require (mTokenType.transfer(mSeller, mAmount+mCollateral));
     }
 

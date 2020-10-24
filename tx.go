@@ -227,8 +227,8 @@ func ClaimRefund(
 	cipherProof, clearProof merkle.Proof,
 ) (*types.Receipt, error) {
 	var (
-		treddCipherProof = toTreddProof(cipherProof)
-		treddClearProof  = toTreddProof(clearProof)
+		treddCipherProof = contract.Proof(cipherProof)
+		treddClearProof  = contract.Proof(clearProof)
 	)
 
 	tx, err := con.Refund(buyer, uint64(index), cipherChunk, clearHash, treddCipherProof, treddClearProof)
@@ -236,14 +236,6 @@ func ClaimRefund(
 		return nil, errors.Wrap(err, "invoking Refund")
 	}
 	return bind.WaitMined(ctx, client, tx)
-}
-
-func toTreddProof(proof merkle.Proof) []contract.TreddProofStep {
-	result := make([]contract.TreddProofStep, 0, len(proof))
-	for _, step := range proof {
-		result = append(result, contract.TreddProofStep{H: step.H, Left: step.Left})
-	}
-	return result
 }
 
 var ethAddr common.Address

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
@@ -33,6 +32,11 @@ var (
 	DecryptionKey [32]byte
 	ClearRoot     [32]byte
 	CipherRoot    [32]byte
+)
+
+const (
+	RevealDeadlineSecs = 60
+	RefundDeadlineSecs = 120
 )
 
 func init() {
@@ -97,7 +101,7 @@ func NewHarness() (*Harness, error) {
 var big1 = big.NewInt(1)
 
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, tx, _, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big1, big1, ClearRoot, CipherRoot, time.Now().Add(time.Hour).Unix(), time.Now().Add(2*time.Hour).Unix())
+	addr, tx, _, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big1, big1, ClearRoot, CipherRoot, RevealDeadlineSecs, RefundDeadlineSecs)
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
 	}
@@ -112,6 +116,44 @@ func (h *Harness) Deploy(ctx context.Context) error {
 
 func (h *Harness) Contract() (*contract.Tredd, error) {
 	return contract.NewTredd(h.ContractAddr, h.Client)
+}
+
+func (h *Harness) ProposePayment(ctx context.Context) error {
+	err := h.Deploy(ctx)
+	if err != nil {
+		return errors.Wrap(err, "deploying contract")
+	}
+
+	con, err := h.Contract()
+	if err != nil {
+		return errors.Wrap(err, "instantiating contract")
+	}
+
+	txOpts := *h.Buyer
+	txOpts.Value = big1
+	raw := &contract.TreddRaw{Contract: con}
+	payTx, err := raw.Transfer(&txOpts)
+	if err != nil {
+		return errors.Wrap(err, "creating payment tx")
+	}
+
+	h.Client.Commit()
+	_, err = h.Client.TransactionReceipt(ctx, payTx.Hash())
+	return errors.Wrap(err, "getting transaction receipt")
+}
+
+func (h *Harness) Cancel(ctx context.Context) error {
+	con, err := h.Contract()
+	if err != nil {
+		return errors.Wrap(err, "instantiating contract")
+	}
+	tx, err := con.Cancel(h.Buyer)
+	if err != nil {
+		return errors.Wrap(err, "creating cancel tx")
+	}
+	h.Client.Commit()
+	_, err = h.Client.TransactionReceipt(ctx, tx.Hash())
+	return errors.Wrap(err, "getting transaction receipt")
 }
 
 func (h *Harness) Reveal(ctx context.Context) error {

@@ -11,6 +11,7 @@ import (
 	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 
+	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
 
@@ -68,7 +69,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 
 		callopts := new(bind.CallOpts)
 
-		ok, err := con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
+		ok, err := con.CheckProof(callopts, contract.Proof(proof), refchunk, wantRootBuf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +78,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refchunk[0] ^= 1
-		ok, err = con.CheckProof(callopts, toTreddProof(proof), refchunk, wantRootBuf)
+		ok, err = con.CheckProof(callopts, contract.Proof(proof), refchunk, wantRootBuf)
 		if err != nil {
 			t.Fatal(err)
 		}
