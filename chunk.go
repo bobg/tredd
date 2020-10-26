@@ -3,6 +3,7 @@ package tredd
 import (
 	"crypto/sha256"
 
+	"github.com/bobg/merkle"
 	"github.com/pkg/errors"
 )
 
@@ -16,15 +17,15 @@ type ChunkStore interface {
 	Add([]byte) error
 
 	// Get gets the chunk with the given index (0-based).
-	Get(int64) ([]byte, error)
+	Get(uint64) ([]byte, error)
 
 	// Len tells the number of chunks in the store.
-	Len() (int64, error)
+	Len() (uint64, error)
 }
 
 var errMissingChunk = errors.New("missing chunk")
 
-func Crypt(key [32]byte, chunk []byte, index int64) error {
+func Crypt(key [32]byte, chunk []byte, index uint64) error {
 	var (
 		hasher = sha256.New()
 		subkey [32]byte
@@ -34,7 +35,7 @@ func Crypt(key [32]byte, chunk []byte, index int64) error {
 		// compute subchunk key
 		hasher.Reset()
 
-		inp := SubchunkKeyParams(key, uint64(index), uint64(i))
+		inp := SubchunkKeyParams(key, index, uint64(i))
 
 		hasher.Write(inp)
 		hasher.Sum(subkey[:0])
@@ -50,4 +51,49 @@ func Crypt(key [32]byte, chunk []byte, index int64) error {
 		}
 	}
 	return nil
+}
+
+func PrepareForRefund(index uint64, clearHashes, cipherChunks ChunkStore) (clearHashN [32]byte, cipherChunkN []byte, clearProof, cipherProof merkle.Proof, err error) {
+	var n uint64
+	n, err = clearHashes.Len()
+	if err != nil {
+		return
+	}
+
+	var clearHashNBytes []byte
+	clearHashNBytes, err = clearHashes.Get(index)
+	if err != nil {
+		return
+	}
+	copy(clearHashN[:], clearHashNBytes)
+
+	cipherChunkN, err = cipherChunks.Get(index)
+	if err != nil {
+		return
+	}
+	prefixedCipherChunkN := PrefixChunk(index, cipherChunkN)
+
+	var (
+		clearMT  = merkle.NewProofHTree(sha256.New(), clearHashNBytes)
+		cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunkN)
+	)
+
+	for i := uint64(0); index < n; index++ {
+		var clearHash []byte
+		clearHash, err = clearHashes.Get(i)
+		if err != nil {
+			return
+		}
+		clearMT.Add(clearHash)
+
+		var cipherChunk []byte
+		cipherChunk, err = cipherChunks.Get(i)
+		if err != nil {
+			return
+		}
+		prefixedCipherChunk := PrefixChunk(i, cipherChunk)
+		cipherMT.Add(prefixedCipherChunk)
+	}
+
+	return clearHashN, cipherChunkN, clearMT.Proof(), cipherMT.Proof(), nil
 }

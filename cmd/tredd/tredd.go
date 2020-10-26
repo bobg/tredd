@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
@@ -14,7 +13,6 @@ import (
 	"path"
 
 	"github.com/bobg/merkle"
-	"github.com/bobg/sqlutil"
 	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd"
@@ -34,8 +32,6 @@ func main() {
 		get(os.Args[2:])
 	case "serve":
 		serve(os.Args[2:])
-	case "utxos":
-		utxos(os.Args[2:])
 	case "abi":
 		fmt.Println(contract.TreddABI)
 	default:
@@ -147,7 +143,7 @@ func decrypt(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for index := int64(0); ; index++ {
+	for index := uint64(0); ; index++ {
 		var buf [tredd.ChunkSize]byte
 		n, err := io.ReadFull(os.Stdin, buf[:])
 		if err == io.EOF {
@@ -159,31 +155,5 @@ func decrypt(args []string) {
 		}
 		tredd.Crypt(key, buf[:n], index)
 		os.Stdout.Write(buf[:n])
-	}
-}
-
-func utxos(args []string) {
-	fs := flag.NewFlagSet("", flag.PanicOnError)
-	dbFile := fs.String("db", "", "db file")
-	err := fs.Parse(args)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ctx := context.Background()
-
-	db, err := openDB(ctx, *dbFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	const q = `SELECT output_id, asset_id, amount, anchor FROM utxos ORDER BY asset_id`
-	err = sqlutil.ForQueryRows(ctx, db, q, func(outputID, assetID []byte, amount int64, anchor []byte) {
-		fmt.Printf("asset %x output %x amount %d anchor %x\n", assetID, outputID, amount, anchor)
-		// TODO: also report reservationID/expiration if there is a pending reservation
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
 }

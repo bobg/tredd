@@ -221,7 +221,7 @@ func ClaimRefund(
 	client *ethclient.Client,
 	buyer *bind.TransactOpts,
 	con *contract.Tredd,
-	index int64,
+	index uint64,
 	cipherChunk []byte,
 	clearHash [32]byte,
 	cipherProof, clearProof merkle.Proof,
@@ -231,7 +231,7 @@ func ClaimRefund(
 		treddClearProof  = contract.Proof(clearProof)
 	)
 
-	tx, err := con.Refund(buyer, uint64(index), cipherChunk, clearHash, treddCipherProof, treddClearProof)
+	tx, err := con.Refund(buyer, index, cipherChunk, clearHash, treddCipherProof, treddClearProof)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Refund")
 	}

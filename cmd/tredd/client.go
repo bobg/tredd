@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -209,55 +207,12 @@ func get(args []string) {
 
 			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
 
-			refClearHash, err := clearHashes.Get(bchErr.Index)
+			refClearHash, refCipherChunk, clearProof, cipherProof, err := tredd.PrepareForRefund(bchErr.Index, clearHashes, cipherChunks)
 			if err != nil {
-				log.Fatalf("Error getting clear hash %d: %s", bchErr.Index, err)
-			}
-			var refClearHashBuf [32]byte
-			copy(refClearHashBuf[:], refClearHash)
-			prefixedRefClearHash := tredd.PrefixHash(uint64(bchErr.Index), refClearHashBuf)
-
-			refCipherChunk, err := cipherChunks.Get(bchErr.Index)
-			if err != nil {
-				log.Fatalf("Error getting cipher chunk %d: %s", bchErr.Index, err)
-			}
-			prefixedRefCipherChunk := tredd.PrefixChunk(uint64(bchErr.Index), refCipherChunk)
-
-			var (
-				clearTree  = merkle.NewProofTree(sha256.New(), prefixedRefClearHash)
-				cipherTree = merkle.NewProofTree(sha256.New(), prefixedRefCipherChunk)
-			)
-
-			nchunks, err := cipherChunks.Len()
-			if err != nil {
-				log.Fatalf("Error getting size of cipher-chunk store: %s", err)
+				log.Fatalf("preparing for refund: %s", err)
 			}
 
-			for index := int64(0); index < nchunks; index++ {
-				clearHash, err := clearHashes.Get(index)
-				if err != nil {
-					log.Fatalf("Error getting clear hash %d: %s", index, err)
-				}
-				var clearHashBuf [32]byte
-				copy(clearHashBuf[:], clearHash)
-				prefixedClearHash := tredd.PrefixHash(uint64(index), clearHashBuf)
-
-				cipherChunk, err := cipherChunks.Get(index)
-				if err != nil {
-					log.Fatalf("Error getting cipher chunk %d: %s", index, err)
-				}
-				prefixedCipherChunk := tredd.PrefixChunk(uint64(index), cipherChunk)
-
-				clearTree.Add(prefixedClearHash)
-				cipherTree.Add(prefixedCipherChunk)
-			}
-
-			var (
-				clearProof  = clearTree.Proof()
-				cipherProof = cipherTree.Proof()
-			)
-
-			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk, refClearHashBuf, cipherProof, clearProof)
+			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk, refClearHash, cipherProof, clearProof)
 			if err != nil {
 				log.Fatalf("Error constructing refund-claiming transaction: %s", err)
 			}

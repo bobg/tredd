@@ -3,10 +3,11 @@ package tredd
 import (
 	"bytes"
 	"encoding/hex"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/bobg/tredd/testutil"
 )
 
 const testKeyHex = "17f9d2125c385c2b7626034a506e524b971d9487daeb688538101c4d7d6d1f2a"
@@ -50,8 +51,8 @@ func TestServeGetDecrypt(t *testing.T) {
 	}
 
 	var (
-		clearHashes  = new(testChunkStore)
-		cipherChunks = new(testChunkStore)
+		clearHashes  = new(testutil.ChunkStore)
+		cipherChunks = new(testutil.ChunkStore)
 	)
 
 	cipherRoot, err = Get(served, clearRoot, clearHashes, cipherChunks)
@@ -70,28 +71,6 @@ func TestServeGetDecrypt(t *testing.T) {
 	if !bytes.Equal(decrypted.Bytes(), text) {
 		t.Error("text mismatch")
 	}
-}
-
-type testChunkStore struct {
-	chunks [][]byte
-}
-
-func (t *testChunkStore) Add(chunk []byte) error {
-	dup := make([]byte, len(chunk))
-	copy(dup, chunk)
-	t.chunks = append(t.chunks, dup)
-	return nil
-}
-
-func (t *testChunkStore) Get(index int64) ([]byte, error) {
-	if index >= int64(len(t.chunks)) {
-		return nil, fmt.Errorf("index %d >= len %d", index, len(t.chunks))
-	}
-	return t.chunks[index], nil
-}
-
-func (t *testChunkStore) Len() (int64, error) {
-	return int64(len(t.chunks)), nil
 }
 
 func BenchmarkCrypt(b *testing.B) {

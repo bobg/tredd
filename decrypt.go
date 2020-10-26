@@ -21,7 +21,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 	if err != nil {
 		return errors.Wrap(err, "counting clear hashes")
 	}
-	for index := int64(0); index < nhashes; index++ {
+	for index := uint64(0); index < nhashes; index++ {
 		wantClearHash, err := clearHashes.Get(index)
 		if err != nil {
 			return errors.Wrapf(err, "getting clear hash %d", index)
@@ -53,7 +53,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 // BadClearHashError gives the index of a cleartext chunk whose hash doesn't have the expected value.
 type BadClearHashError struct {
 	// Index is the index of the chunk and of the hash within their respective ChunkStores.
-	Index int64
+	Index uint64
 }
 
 func (e BadClearHashError) Error() string {
