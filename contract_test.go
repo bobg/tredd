@@ -55,21 +55,22 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hasher := sha256.New()
 	for _, refchunk := range chunks {
-		tree := merkle.NewProofTree(hasher, refchunk)
+		tree := merkle.NewProofTree(sha256.New(), refchunk)
 		for _, chunk := range chunks {
 			tree.Add(chunk)
 		}
-		root := tree.Root()
-		proof := tree.Proof()
 
-		var wantRootBuf [32]byte
-		copy(wantRootBuf[:], root)
+		var root [32]byte
+		copy(root[:], tree.Root())
+		proof := tree.Proof()
 
 		callopts := new(bind.CallOpts)
 
-		ok, err := con.CheckProof(callopts, contract.Proof(proof), refchunk, wantRootBuf)
+		var leaf [32]byte
+
+		merkle.LeafHash(sha256.New(), leaf[:0], refchunk)
+		ok, err := con.CheckProof(callopts, contract.Proof(proof), leaf, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,8 +78,8 @@ func TestSolidityMerkleCheck(t *testing.T) {
 			t.Error("proof validation failed")
 		}
 
-		refchunk[0] ^= 1
-		ok, err = con.CheckProof(callopts, contract.Proof(proof), refchunk, wantRootBuf)
+		leaf[0] ^= 1
+		ok, err = con.CheckProof(callopts, contract.Proof(proof), leaf, root)
 		if err != nil {
 			t.Fatal(err)
 		}

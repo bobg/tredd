@@ -15,10 +15,7 @@ import (
 // Along the way, it compares each cleartext chunk's hash to the corresponding value in clearHashes.
 // If it finds a mismatch, it returns a BadClearHashError.
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
-	var (
-		hasher       = sha256.New()
-		gotClearHash [32]byte
-	)
+	hasher := sha256.New()
 
 	nhashes, err := clearHashes.Len()
 	if err != nil {
@@ -36,7 +33,10 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		}
 		Crypt(key, chunk, index)
 
-		merkle.LeafHash(hasher, gotClearHash[:0], chunk)
+		prefixedGotClearChunk := PrefixChunk(uint64(index), chunk)
+		var gotClearHash [32]byte
+
+		merkle.LeafHash(hasher, gotClearHash[:0], prefixedGotClearChunk)
 		if !bytes.Equal(gotClearHash[:], wantClearHash) {
 			return BadClearHashError{Index: index}
 		}

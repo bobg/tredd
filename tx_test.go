@@ -189,6 +189,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	_, err = con.Refund(harness.Buyer, 0, cipherChunk0, clearHash0, contract.Proof(cipherProof), contract.Proof(clearProof))
 	if err != nil {
+		t.Logf("clearProof hash: %x", clearProof.Hash(sha256.New(), clearHash0[:]))
 		t.Fatal(err)
 	}
 
@@ -288,7 +289,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.Client.Commit()
 
-	harness.Client.AdjustTime(testutil.RefundDeadlineSecs)
+	harness.Client.AdjustTime(testutil.RefundDeadlineSecs * time.Second)
 
 	_, err = con.ClaimPayment(harness.Seller)
 	if err != nil {
@@ -313,13 +314,14 @@ func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, ciphe
 	go func() {
 		defer close(errch)
 		defer pw.Close()
-		_, err = Serve(pw, f, testutil.DecryptionKey)
+		_, err := Serve(pw, f, testutil.DecryptionKey)
 		errch <- err
 	}()
 
 	var (
-		wasPartial        = false
-		clearMT, cipherMT *merkle.Tree
+		wasPartial = false
+		clearMT    *merkle.HTree
+		cipherMT   *merkle.Tree
 	)
 	for i := uint64(0); ; i++ {
 		var clearHash [32]byte
@@ -346,20 +348,17 @@ func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, ciphe
 			return
 		}
 
-		var (
-			prefixedClearHash   = PrefixHash(i, clearHash)
-			prefixedCipherChunk = PrefixChunk(i, cipherChunk[:n])
-		)
+		prefixedCipherChunk := PrefixChunk(i, cipherChunk[:n])
 
 		if i == 0 {
 			clearHash0 = clearHash
 			cipherChunk0 = cipherChunk[:n]
 
-			clearMT = merkle.NewProofTree(sha256.New(), prefixedClearHash)
+			clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
 			cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunk)
 		}
 
-		clearMT.Add(prefixedClearHash)
+		clearMT.Add(clearHash[:])
 		cipherMT.Add(prefixedCipherChunk)
 	}
 

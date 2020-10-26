@@ -27,8 +27,9 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "reading clear chunk %d", index)
 		}
 
+		prefixedClearChunk := PrefixChunk(uint64(index), chunk[:n])
 		var clearChunkHash [32]byte
-		merkle.LeafHash(hasher, clearChunkHash[:0], chunk[:n])
+		merkle.LeafHash(hasher, clearChunkHash[:0], prefixedClearChunk)
 		_, err = w.Write(clearChunkHash[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)

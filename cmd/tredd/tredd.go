@@ -62,7 +62,6 @@ func add(args []string) {
 	}
 }
 
-// TODO: Solidity encoding (as in serve.go).
 func addFile(file, dir, contentType string) error {
 	f, err := os.Open(file)
 	if err != nil {
@@ -71,9 +70,8 @@ func addFile(file, dir, contentType string) error {
 	defer f.Close()
 
 	var (
-		tree   = merkle.NewTree(sha256.New())
-		hasher = sha256.New()
-		chunk  [tredd.ChunkSize]byte
+		tree  = merkle.NewTree(sha256.New())
+		chunk [tredd.ChunkSize]byte
 	)
 
 	for index := uint64(0); ; index++ {
@@ -89,10 +87,8 @@ func addFile(file, dir, contentType string) error {
 			contentType = http.DetectContentType(chunk[:n])
 		}
 
-		var clearHash [32]byte
-		merkle.LeafHash(hasher, clearHash[:0], chunk[:n])
-		prefixedClearHash := tredd.PrefixHash(index, clearHash)
-		tree.Add(prefixedClearHash)
+		prefixedClearChunk := tredd.PrefixChunk(index, chunk[:n])
+		tree.Add(prefixedClearChunk)
 	}
 
 	var clearHash [32]byte

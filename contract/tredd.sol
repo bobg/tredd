@@ -207,11 +207,9 @@ contract Tredd {
     bool left;
   }
 
-  function checkProof(ProofStep[] memory steps, bytes memory leaf, bytes32 want) public pure returns (bool) {
-    bytes1 leafPrefix = '\x00';
+  function checkProof(ProofStep[] memory steps, bytes32 leaf, bytes32 want) public pure returns (bool) {
     bytes1 interiorPrefix = '\x01';
-
-    bytes32 got = sha256(abi.encodePacked(leafPrefix, leaf));
+    bytes32 got = leaf;
 
     for (uint32 i = 0; i < steps.length; i++) {
       ProofStep memory step = steps[i];
@@ -253,14 +251,17 @@ contract Tredd {
     require (block.timestamp < uint(mRefundDeadline));
     require (mRevealed);
 
+    bytes1 leafPrefix = '\x00';
+
     // 1. Verify cipherProof w.r.t. Hash(index || cipherChunk) and mCipherRoot
-    require (checkProof(cipherProof, abi.encodePacked(index, cipherChunk), mCipherRoot)); // TODO: check abi.encodePacked(index, cipherChunk) exactly matches Go impl.
+    bytes32 leaf = sha256(abi.encodePacked(leafPrefix, index, cipherChunk));
+    require (checkProof(cipherProof, leaf, mCipherRoot));
 
     // 2. Verify clearProof w.r.t. Hash(index || clearChunk) (given as clearHash) and mClearRoot
-    require (checkProof(clearProof, abi.encodePacked(index, clearHash), mClearRoot));
+    require (checkProof(clearProof, clearHash, mClearRoot));
 
-    // 3. Show Hash(decrypt(cipherChunk)) != Hash(clearChunk)
-    require (sha256(decrypt(cipherChunk, index)) != clearHash);
+    // 3. Show Hash(index || decrypt(cipherChunk)) != Hash(index || clearChunk) (a.k.a. clearHash)
+    require (sha256(abi.encodePacked(leafPrefix, index, decrypt(cipherChunk, index))) != clearHash);
 
     // 4. Transfer the balance in this contract to the buyer.
     if (!isEth()) {
