@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bobg/merkle"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
@@ -319,49 +318,32 @@ func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, ciphe
 	}()
 
 	var (
-		wasPartial = false
-		clearMT    *merkle.HTree
-		cipherMT   *merkle.Tree
+		clearMT  *merkle.HTree
+		cipherMT *merkle.Tree
 	)
-	for i := uint64(0); ; i++ {
-		var clearHash [32]byte
-		_, err = io.ReadFull(pr, clearHash[:])
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return
-		}
-
-		var (
-			cipherChunk [ChunkSize]byte
-			n           int
-		)
-		n, err = io.ReadFull(pr, cipherChunk[:])
-		if err == io.ErrUnexpectedEOF {
-			if wasPartial {
-				err = errors.New("two partial chunks seen")
-				return
+	err = Receive(
+		pr,
+		func(clearHash [32]byte, i uint64) error {
+			if i == 0 {
+				clearHash0 = clearHash
+				clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
 			}
-			wasPartial = true
-		} else if err != nil {
-			return
-		}
-
-		prefixedCipherChunk := PrefixChunk(i, cipherChunk[:n])
-
-		if i == 0 {
-			clearHash0 = clearHash
-			cipherChunk0 = cipherChunk[:n]
-
-			clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
-			cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunk)
-		}
-
-		clearMT.Add(clearHash[:])
-		cipherMT.Add(prefixedCipherChunk)
+			clearMT.Add(clearHash[:])
+			return nil
+		},
+		func(cipherChunk []byte, i uint64) error {
+			prefixedCipherChunk := PrefixChunk(i, cipherChunk)
+			if i == 0 {
+				cipherChunk0 = cipherChunk
+				cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunk)
+			}
+			cipherMT.Add(prefixedCipherChunk)
+			return nil
+		},
+	)
+	if err != nil {
+		return
 	}
-
 	err = <-errch
 	if err != nil {
 		return
