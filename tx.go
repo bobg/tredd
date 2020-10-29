@@ -8,20 +8,25 @@ import (
 
 	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 )
+
+type clientType interface {
+	bind.ContractBackend
+	bind.DeployBackend
+}
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
 // It also approves a transfer for `amount` tokens of `tokenType` to the contract
 // and then calls the contract's Pay method.
 func ProposePayment(
 	ctx context.Context,
-	client *ethclient.Client,
+	client clientType,
 	buyer *bind.TransactOpts,
 	seller common.Address,
 	tokenType common.Address,
@@ -34,7 +39,7 @@ func ProposePayment(
 		return common.Address{}, nil, errors.Wrap(err, "deploying contract")
 	}
 
-	_, err = bind.WaitMined(ctx, client, deployTx)
+	_, err = waitMined(ctx, client, deployTx)
 	if err != nil {
 		return common.Address{}, nil, errors.Wrap(err, "waiting for contract deployment")
 	}
@@ -61,17 +66,17 @@ func ProposePayment(
 	}
 
 	// Wait for payTx to be mined on-chain.
-	_, err = bind.WaitMined(ctx, client, payTx)
+	_, err = waitMined(ctx, client, payTx)
 	return contractAddr, con, errors.Wrap(err, "awaiting payment transaction")
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
-func Cancel(ctx context.Context, client *ethclient.Client, buyer *bind.TransactOpts, con *contract.Tredd) (*types.Receipt, error) {
+func Cancel(ctx context.Context, client clientType, buyer *bind.TransactOpts, con *contract.Tredd) (*types.Receipt, error) {
 	tx, err := con.Cancel(buyer)
 	if err != nil {
 		return nil, errors.Wrap(err, "canceling contract")
 	}
-	return bind.WaitMined(ctx, client, tx)
+	return waitMined(ctx, client, tx)
 }
 
 // The reveal deadline must still be this far in the future when RevealKey is called.
@@ -81,8 +86,9 @@ const minRevealDur = 5 * time.Minute
 // It also approves a collateral transfer.
 func RevealKey(
 	ctx context.Context,
-	client *ethclient.Client, // see ethclient.Dial
-	seller *bind.TransactOpts, // see bind.NewTransactor
+	client clientType,
+	now time.Time,
+	seller *bind.TransactOpts,
 	contractAddr common.Address,
 	key [32]byte,
 	wantTokenType common.Address,
@@ -142,10 +148,11 @@ func RevealKey(
 		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
 	}
 	gotRevealDeadline := time.Unix(gotRevealDeadlineSecs, 0)
-	if !gotRevealDeadline.Equal(wantRevealDeadline) {
+	if gotRevealDeadlineSecs != wantRevealDeadline.Unix() { // lop off fractional seconds from wantRevealDeadline
 		return nil, nil, fmt.Errorf("reveal deadline is %s, want %s", gotRevealDeadline, wantRevealDeadline)
 	}
-	if time.Until(gotRevealDeadline) < minRevealDur {
+
+	if gotRevealDeadline.Sub(now) < minRevealDur {
 		return nil, nil, fmt.Errorf("reveal deadline of %s is too soon, or in the past", gotRevealDeadline)
 	}
 
@@ -153,9 +160,8 @@ func RevealKey(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
-	gotRefundDeadline := time.Unix(gotRefundDeadlineSecs, 0)
-	if !gotRefundDeadline.Equal(wantRefundDeadline) {
-		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", gotRefundDeadline, wantRefundDeadline)
+	if gotRefundDeadlineSecs != wantRefundDeadline.Unix() { // lop off fractional seconds from wantRefundDeadline
+		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", time.Unix(gotRefundDeadlineSecs, 0), wantRefundDeadline)
 	}
 
 	paidAmount, err := con.Paid(callOpts)
@@ -190,7 +196,7 @@ func RevealKey(
 		return nil, nil, errors.Wrap(err, "invoking ClaimPayment")
 	}
 
-	receipt, err := bind.WaitMined(ctx, client, revealTx)
+	receipt, err := waitMined(ctx, client, revealTx)
 	return con, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
 }
 
@@ -198,7 +204,7 @@ func RevealKey(
 // rehydrating and invoking a Tredd contract from the utxo state (identified by the information in r).
 func ClaimPayment(
 	ctx context.Context,
-	client *ethclient.Client,
+	client clientType,
 	seller *bind.TransactOpts,
 	contractAddr common.Address,
 ) (*types.Receipt, error) {
@@ -210,7 +216,7 @@ func ClaimPayment(
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking ClaimPayment")
 	}
-	return bind.WaitMined(ctx, client, tx)
+	return waitMined(ctx, client, tx)
 }
 
 // ClaimRefund constructs a buyer-claims-refund transaction,
@@ -218,7 +224,7 @@ func ClaimPayment(
 // and calling it with the necessary proofs and other information.
 func ClaimRefund(
 	ctx context.Context,
-	client *ethclient.Client,
+	client clientType,
 	buyer *bind.TransactOpts,
 	con *contract.Tredd,
 	index uint64,
@@ -234,6 +240,13 @@ func ClaimRefund(
 	tx, err := con.Refund(buyer, index, cipherChunk, clearHash, treddCipherProof, treddClearProof)
 	if err != nil {
 		return nil, errors.Wrap(err, "invoking Refund")
+	}
+	return waitMined(ctx, client, tx)
+}
+
+func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*types.Receipt, error) {
+	if simulated, ok := client.(*backends.SimulatedBackend); ok {
+		simulated.Commit()
 	}
 	return bind.WaitMined(ctx, client, tx)
 }

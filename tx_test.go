@@ -10,10 +10,13 @@ import (
 	"time"
 
 	"github.com/bobg/merkle"
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
+
+var big1 = big.NewInt(1)
 
 func TestProposeCancel(t *testing.T) {
 	harness, err := testutil.NewHarness()
@@ -23,21 +26,20 @@ func TestProposeCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
+	_, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Canceling before the reveal deadline should fail.
-	err = harness.Cancel(ctx)
+	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err == nil {
 		t.Fatal("expected a cancel before the reveal deadline to fail")
 	}
 
 	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
 
-	err = harness.Cancel(ctx)
+	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,19 +53,13 @@ func TestProposePayCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	con, err := harness.Contract()
+	_, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Buyer
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -76,14 +72,14 @@ func TestProposePayCancel(t *testing.T) {
 	// xxx check buyer's balance is decreased
 
 	// Canceling before the reveal deadline should fail.
-	err = harness.Cancel(ctx)
+	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err == nil {
 		t.Fatal("expected a cancel before the reveal deadline to fail")
 	}
 
 	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
 
-	err = harness.Cancel(ctx)
+	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,19 +95,13 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	con, err := harness.Contract()
+	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Buyer
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -123,16 +113,14 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	txOpts = *harness.Seller
 	txOpts.Value = big.NewInt(1)
-	_, err = con.Reveal(&txOpts, testutil.DecryptionKey)
+	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), &txOpts, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	harness.Client.Commit()
-
 	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
 
-	err = harness.Cancel(ctx)
+	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err == nil {
 		t.Fatalf("expected a cancel after the key is revealed to fail")
 	}
@@ -146,19 +134,13 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	con, err := harness.Contract()
+	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Buyer
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -174,25 +156,20 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	txOpts = *harness.Seller
 	txOpts.Value = big.NewInt(1)
-	_, err = con.Reveal(&txOpts, key)
+	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, key, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	harness.Client.Commit()
 
 	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = con.Refund(harness.Buyer, 0, cipherChunk0, clearHash0, contract.Proof(cipherProof), contract.Proof(clearProof))
+	_, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
 	if err != nil {
-		t.Logf("clearProof hash: %x", clearProof.Hash(sha256.New(), clearHash0[:]))
 		t.Fatal(err)
 	}
-
-	harness.Client.Commit()
 
 	// xxx check buyer collected payment and collateral
 }
@@ -205,19 +182,13 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	con, err := harness.Contract()
+	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Buyer
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -230,19 +201,17 @@ func TestProposeRevealRefundFail(t *testing.T) {
 	// Reveal the right key.
 	txOpts = *harness.Seller
 	txOpts.Value = big.NewInt(1)
-	_, err = con.Reveal(&txOpts, testutil.DecryptionKey)
+	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	harness.Client.Commit()
 
 	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = con.Refund(harness.Buyer, 0, cipherChunk0, clearHash0, contract.Proof(cipherProof), contract.Proof(clearProof))
+	_, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
 	if err == nil {
 		t.Fatalf("expected refund attempt to fail after reveal of correct key")
 	}
@@ -256,19 +225,13 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	ctx := context.Background()
 
-	// test ProposePayment/Cancel
-	err = harness.ProposePayment(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	con, err := harness.Contract()
+	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Buyer
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -281,21 +244,17 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 	// Reveal the right key.
 	txOpts = *harness.Seller
 	txOpts.Value = big.NewInt(1)
-	_, err = con.Reveal(&txOpts, testutil.DecryptionKey)
+	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	harness.Client.Commit()
 
 	harness.Client.AdjustTime(testutil.RefundDeadlineSecs * time.Second)
 
-	_, err = con.ClaimPayment(harness.Seller)
+	_, err = ClaimPayment(ctx, harness.Client, harness.Seller, contractAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	harness.Client.Commit()
 
 	// xxx check buyer collected payment and collateral
 }

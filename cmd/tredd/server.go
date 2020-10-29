@@ -295,6 +295,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
 	con, receipt, err := tredd.RevealKey(
 		ctx,
 		s.client,
+		time.Now(),
 		s.seller,
 		contractAddr,
 		rec.key,

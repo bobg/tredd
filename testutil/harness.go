@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
@@ -35,8 +36,8 @@ var (
 )
 
 const (
-	RevealDeadlineSecs = 60
-	RefundDeadlineSecs = 120
+	RevealDeadlineSecs = 600
+	RefundDeadlineSecs = 1200
 )
 
 func init() {
@@ -57,9 +58,11 @@ func init() {
 }
 
 type Harness struct {
-	Buyer, Seller *bind.TransactOpts
-	Client        *backends.SimulatedBackend
-	ContractAddr  common.Address
+	Buyer, Seller                  *bind.TransactOpts
+	Client                         *backends.SimulatedBackend
+	RevealDeadline, RefundDeadline time.Time
+	ContractAddr                   common.Address // only set after Harness.Deploy is called
+	Contract                       *contract.Tredd
 }
 
 func NewHarness() (*Harness, error) {
@@ -89,88 +92,39 @@ func NewHarness() (*Harness, error) {
 		buyer.From:  core.GenesisAccount{Balance: big.NewInt(1000000000)},
 		seller.From: core.GenesisAccount{Balance: big.NewInt(1000000000)},
 	}
+
 	client := backends.NewSimulatedBackend(alloc, 4712388) // This number comes from https://goethereumbook.org/client-simulated/
 
+	now := time.Unix(0, 0)
+
 	return &Harness{
-		Buyer:  buyer,
-		Seller: seller,
-		Client: client,
+		Buyer:          buyer,
+		Seller:         seller,
+		Client:         client,
+		RevealDeadline: now.Add(RevealDeadlineSecs * time.Second),
+		RefundDeadline: now.Add(RefundDeadlineSecs * time.Second),
 	}, nil
 }
 
 var big1 = big.NewInt(1)
 
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, tx, _, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big1, big1, ClearRoot, CipherRoot, RevealDeadlineSecs, RefundDeadlineSecs)
+	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big1, big1, ClearRoot, CipherRoot, h.RevealDeadline.Unix(), h.RefundDeadline.Unix())
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
-	}
-	h.Client.Commit()
-	_, err = h.Client.TransactionReceipt(ctx, tx.Hash())
-	if err != nil {
-		return errors.Wrap(err, "getting transaction receipt")
-	}
-	h.ContractAddr = addr
-	return nil
-}
-
-func (h *Harness) Contract() (*contract.Tredd, error) {
-	return contract.NewTredd(h.ContractAddr, h.Client)
-}
-
-func (h *Harness) ProposePayment(ctx context.Context) error {
-	err := h.Deploy(ctx)
-	if err != nil {
-		return errors.Wrap(err, "deploying contract")
-	}
-
-	con, err := h.Contract()
-	if err != nil {
-		return errors.Wrap(err, "instantiating contract")
 	}
 
 	txOpts := *h.Buyer
 	txOpts.Value = big1
 	raw := &contract.TreddRaw{Contract: con}
-	payTx, err := raw.Transfer(&txOpts)
-	if err != nil {
-		return errors.Wrap(err, "creating payment tx")
-	}
 
-	h.Client.Commit()
-	_, err = h.Client.TransactionReceipt(ctx, payTx.Hash())
-	return errors.Wrap(err, "getting transaction receipt")
-}
-
-func (h *Harness) Cancel(ctx context.Context) error {
-	con, err := h.Contract()
+	_, err = raw.Transfer(&txOpts)
 	if err != nil {
-		return errors.Wrap(err, "instantiating contract")
-	}
-	tx, err := con.Cancel(h.Buyer)
-	if err != nil {
-		return errors.Wrap(err, "creating cancel tx")
+		return errors.Wrap(err, "transfering buyer payment to contract")
 	}
 	h.Client.Commit()
-	_, err = h.Client.TransactionReceipt(ctx, tx.Hash())
-	return errors.Wrap(err, "getting transaction receipt")
-}
 
-func (h *Harness) Reveal(ctx context.Context) error {
-	con, err := h.Contract()
-	if err != nil {
-		return errors.Wrap(err, "instantiating contract")
-	}
-
-	txOpts := *h.Seller
-	txOpts.Value = big1
-
-	tx, err := con.Reveal(&txOpts, DecryptionKey)
-	if err != nil {
-		return errors.Wrap(err, "calling reveal")
-	}
-	h.Client.Commit()
-	_, err = h.Client.TransactionReceipt(ctx, tx.Hash())
-
-	return errors.Wrap(err, "getting tx receipt")
+	h.ContractAddr = addr
+	h.Contract = con
+	return nil
 }

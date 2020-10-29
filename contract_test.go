@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"io"
+	"math/big"
 	"os"
 	"testing"
 
@@ -50,11 +51,6 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	con, err := harness.Contract()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	for _, refchunk := range chunks {
 		tree := merkle.NewProofTree(sha256.New(), refchunk)
 		for _, chunk := range chunks {
@@ -70,7 +66,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		var leaf [32]byte
 
 		merkle.LeafHash(sha256.New(), leaf[:0], refchunk)
-		ok, err := con.CheckProof(callopts, contract.Proof(proof), leaf, root)
+		ok, err := harness.Contract.CheckProof(callopts, contract.Proof(proof), leaf, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +75,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		leaf[0] ^= 1
-		ok, err = con.CheckProof(callopts, contract.Proof(proof), leaf, root)
+		ok, err = harness.Contract.CheckProof(callopts, contract.Proof(proof), leaf, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,19 +134,17 @@ func TestDecrypt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = harness.Reveal(ctx)
+	txOpts := *harness.Seller
+	txOpts.Value = big.NewInt(1)
+	_, err = harness.Contract.Reveal(&txOpts, testutil.DecryptionKey)
 	if err != nil {
 		t.Fatal(err)
 	}
+	harness.Client.Commit()
 
 	callopts := new(bind.CallOpts)
 
-	con, err := harness.Contract()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := con.Decrypt(callopts, cipher[:], 0)
+	got, err := harness.Contract.Decrypt(callopts, cipher[:], 0)
 	if err != nil {
 		t.Fatal(err)
 	}
