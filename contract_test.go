@@ -135,7 +135,7 @@ func TestDecrypt(t *testing.T) {
 	}
 
 	txOpts := *harness.Seller
-	txOpts.Value = big.NewInt(1)
+	txOpts.Value = big.NewInt(2)
 	_, err = harness.Contract.Reveal(&txOpts, testutil.DecryptionKey)
 	if err != nil {
 		t.Fatal(err)

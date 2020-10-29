@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -38,6 +39,7 @@ var (
 const (
 	RevealDeadlineSecs = 600
 	RefundDeadlineSecs = 1200
+	StartingBalance    = 1000000000
 )
 
 func init() {
@@ -63,6 +65,7 @@ type Harness struct {
 	RevealDeadline, RefundDeadline time.Time
 	ContractAddr                   common.Address // only set after Harness.Deploy is called
 	Contract                       *contract.Tredd
+	BuyerBalance, SellerBalance    uint64 // caller updates these then calls CheckBalances
 }
 
 func NewHarness() (*Harness, error) {
@@ -89,8 +92,8 @@ func NewHarness() (*Harness, error) {
 	seller := bind.NewKeyedTransactor(&sellerKey)
 
 	alloc := core.GenesisAlloc{
-		buyer.From:  core.GenesisAccount{Balance: big.NewInt(1000000000)},
-		seller.From: core.GenesisAccount{Balance: big.NewInt(1000000000)},
+		buyer.From:  core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
+		seller.From: core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
 	}
 
 	client := backends.NewSimulatedBackend(alloc, 4712388) // This number comes from https://goethereumbook.org/client-simulated/
@@ -103,19 +106,24 @@ func NewHarness() (*Harness, error) {
 		Client:         client,
 		RevealDeadline: now.Add(RevealDeadlineSecs * time.Second),
 		RefundDeadline: now.Add(RefundDeadlineSecs * time.Second),
+		BuyerBalance:   StartingBalance,
+		SellerBalance:  StartingBalance,
 	}, nil
 }
 
-var big1 = big.NewInt(1)
+var (
+	big2 = big.NewInt(2)
+	big3 = big.NewInt(3)
+)
 
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big1, big1, ClearRoot, CipherRoot, h.RevealDeadline.Unix(), h.RefundDeadline.Unix())
+	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, h.RevealDeadline.Unix(), h.RefundDeadline.Unix())
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
 	}
 
 	txOpts := *h.Buyer
-	txOpts.Value = big1
+	txOpts.Value = big3
 	raw := &contract.TreddRaw{Contract: con}
 
 	_, err = raw.Transfer(&txOpts)
@@ -126,5 +134,30 @@ func (h *Harness) Deploy(ctx context.Context) error {
 
 	h.ContractAddr = addr
 	h.Contract = con
+	return nil
+}
+
+func (h *Harness) Balances(ctx context.Context) (buyer, seller *big.Int, err error) {
+	buyer, err = h.Client.BalanceAt(ctx, h.Buyer.From, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	seller, err = h.Client.BalanceAt(ctx, h.Seller.From, nil)
+	return buyer, seller, err
+}
+
+func (h *Harness) CheckBalances(ctx context.Context) error {
+	gotBuyer, gotSeller, err := h.Balances(ctx)
+	if err != nil {
+		return err
+	}
+	wantBuyer := big.NewInt(int64(h.BuyerBalance))
+	if gotBuyer.Cmp(wantBuyer) != 0 {
+		return fmt.Errorf("got buyer balance %s, want %s", gotBuyer, wantBuyer)
+	}
+	wantSeller := big.NewInt(int64(h.SellerBalance))
+	if gotSeller.Cmp(wantSeller) != 0 {
+		return fmt.Errorf("got seller balance %s, want %s", gotSeller, wantSeller)
+	}
 	return nil
 }

@@ -33,16 +33,19 @@ func ProposePayment(
 	amount, collateral *big.Int,
 	clearRoot, cipherRoot [32]byte,
 	revealDeadline, refundDeadline time.Time,
-) (common.Address, *contract.Tredd, error) {
+) (common.Address, *contract.Tredd, []*types.Receipt, error) {
+	var rcpts []*types.Receipt
+
 	contractAddr, deployTx, con, err := contract.DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "deploying contract")
+		return common.Address{}, nil, nil, errors.Wrap(err, "deploying contract")
 	}
 
-	_, err = waitMined(ctx, client, deployTx)
+	rcpt, err := waitMined(ctx, client, deployTx)
 	if err != nil {
-		return common.Address{}, nil, errors.Wrap(err, "waiting for contract deployment")
+		return common.Address{}, nil, nil, errors.Wrap(err, "waiting for contract deployment")
 	}
+	rcpts = append(rcpts, rcpt)
 
 	var payTx *types.Transaction
 	if IsETH(tokenType) {
@@ -52,22 +55,22 @@ func ProposePayment(
 		raw := &contract.TreddRaw{Contract: con}
 		payTx, err = raw.Transfer(&buyer)
 		if err != nil {
-			return common.Address{}, nil, errors.Wrap(err, "making payment")
+			return common.Address{}, nil, nil, errors.Wrap(err, "making payment")
 		}
 	} else {
 		token, err := contract.NewERC20(tokenType, client)
 		if err != nil {
-			return common.Address{}, nil, errors.Wrap(err, "instantiating token")
+			return common.Address{}, nil, nil, errors.Wrap(err, "instantiating token")
 		}
 		payTx, err = token.Transfer(buyer, contractAddr, amount)
 		if err != nil {
-			return common.Address{}, nil, errors.Wrap(err, "making payment")
+			return common.Address{}, nil, nil, errors.Wrap(err, "making payment")
 		}
 	}
 
 	// Wait for payTx to be mined on-chain.
-	_, err = waitMined(ctx, client, payTx)
-	return contractAddr, con, errors.Wrap(err, "awaiting payment transaction")
+	rcpt, err = waitMined(ctx, client, payTx)
+	return contractAddr, con, append(rcpts, rcpt), errors.Wrap(err, "awaiting payment transaction")
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.

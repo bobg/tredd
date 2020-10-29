@@ -149,7 +149,7 @@ func get(args []string) {
 		log.Fatal(err)
 	}
 
-	contractAddr, con, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
+	contractAddr, con, _, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
 	if err != nil {
 		log.Fatal(err)
 	}

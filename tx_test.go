@@ -11,12 +11,15 @@ import (
 
 	"github.com/bobg/merkle"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 
-	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
 
-var big1 = big.NewInt(1)
+var (
+	big2 = big.NewInt(2)
+	big3 = big.NewInt(3)
+)
 
 func TestProposeCancel(t *testing.T) {
 	harness, err := testutil.NewHarness()
@@ -26,9 +29,16 @@ func TestProposeCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	_, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
 	}
 
 	// Canceling before the reveal deadline should fail.
@@ -39,52 +49,17 @@ func TestProposeCancel(t *testing.T) {
 
 	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
 
-	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestProposePayCancel(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	rcpt, err := Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-
-	_, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	harness.BuyerBalance += 3
+	harness.BuyerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
-
-	txOpts := *harness.Buyer
-	txOpts.Value = big1
-	raw := &contract.TreddRaw{Contract: con}
-
-	_, err = raw.Transfer(&txOpts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	harness.Client.Commit()
-
-	// xxx check buyer's balance is decreased
-
-	// Canceling before the reveal deadline should fail.
-	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
-	if err == nil {
-		t.Fatal("expected a cancel before the reveal deadline to fail")
-	}
-
-	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
-
-	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// xxx check buyer's balance is restored (modulo gas)
 }
 
 func TestProposeRevealCancel(t *testing.T) {
@@ -95,27 +70,28 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	txOpts := *harness.Buyer
-	txOpts.Value = big1
-	raw := &contract.TreddRaw{Contract: con}
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
 
-	_, err = raw.Transfer(&txOpts)
+	con, rcpt, err := RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big3, big2, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	harness.Client.Commit()
-
-	txOpts = *harness.Seller
-	txOpts.Value = big.NewInt(1)
-	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), &txOpts, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
+	harness.SellerBalance -= 2
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
@@ -134,44 +110,50 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	txOpts := *harness.Buyer
-	txOpts.Value = big1
-	raw := &contract.TreddRaw{Contract: con}
-
-	_, err = raw.Transfer(&txOpts)
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
-
-	harness.Client.Commit()
 
 	// Reveal the wrong key.
 	key := testutil.DecryptionKey
 	key[0] ^= 1
 
-	txOpts = *harness.Seller
-	txOpts.Value = big.NewInt(1)
-	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, key, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
+	con, rcpt, err := RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, key, common.Address{}, big3, big2, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs()
+	harness.SellerBalance -= 2
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs(false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
+	rcpt, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// xxx check buyer collected payment and collateral
+	harness.BuyerBalance += 5
+	harness.BuyerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func TestProposeRevealRefundFail(t *testing.T) {
@@ -182,31 +164,32 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	txOpts := *harness.Buyer
-	txOpts.Value = big1
-	raw := &contract.TreddRaw{Contract: con}
-
-	_, err = raw.Transfer(&txOpts)
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
-
-	harness.Client.Commit()
 
 	// Reveal the right key.
-	txOpts = *harness.Seller
-	txOpts.Value = big.NewInt(1)
-	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
+	con, rcpt, err := RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big3, big2, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs()
+	harness.SellerBalance -= 2
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +197,52 @@ func TestProposeRevealRefundFail(t *testing.T) {
 	_, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
 	if err == nil {
 		t.Fatalf("expected refund attempt to fail after reveal of correct key")
+	}
+}
+
+func TestProposeRevealRefundFraud(t *testing.T) {
+	harness, err := testutil.NewHarness()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Reveal the right key.
+	con, rcpt, err := RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big3, big2, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	harness.SellerBalance -= 2
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	clearHash0, cipherChunk0, clearProof, cipherProof, err := createProofs(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
+	if err == nil {
+		t.Fatalf("expected refund attempt to fail after reveal of correct key")
+	} else {
+		t.Log(err)
 	}
 }
 
@@ -225,41 +254,47 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big1, big1, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	txOpts := *harness.Buyer
-	txOpts.Value = big1
-	raw := &contract.TreddRaw{Contract: con}
-
-	_, err = raw.Transfer(&txOpts)
+	harness.BuyerBalance -= 3
+	harness.BuyerBalance -= gasUsed(rcpts)
+	err = harness.CheckBalances(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
-
-	harness.Client.Commit()
 
 	// Reveal the right key.
-	txOpts = *harness.Seller
-	txOpts.Value = big.NewInt(1)
-	con, _, err = RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big1, big1, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
+	_, rcpt, err := RevealKey(ctx, harness.Client, time.Unix(0, 0), harness.Seller, contractAddr, testutil.DecryptionKey, common.Address{}, big3, big2, harness.RevealDeadline, harness.RefundDeadline, testutil.ClearRoot, testutil.CipherRoot)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	harness.SellerBalance -= 2
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
 	}
 
 	harness.Client.AdjustTime(testutil.RefundDeadlineSecs * time.Second)
 
-	_, err = ClaimPayment(ctx, harness.Client, harness.Seller, contractAddr)
+	rcpt, err = ClaimPayment(ctx, harness.Client, harness.Seller, contractAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// xxx check buyer collected payment and collateral
+	harness.SellerBalance += 5
+	harness.SellerBalance -= rcpt.GasUsed
+	err = harness.CheckBalances(ctx)
+	if err != nil {
+		t.Error(err)
+	}
 }
 
-func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, cipherProof merkle.Proof, err error) {
+func createProofs(fraud bool) (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, cipherProof merkle.Proof, err error) {
 	var f io.ReadCloser
 	f, err = os.Open("testdata/udhr.txt")
 	if err != nil {
@@ -286,6 +321,11 @@ func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, ciphe
 			if i == 0 {
 				clearHash0 = clearHash
 				clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
+			} else if i == 1 && fraud {
+				clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
+				clearHash0Copy := clearHash0 // the merkle tree takes ownership of this memory
+				clearMT.Add(clearHash0Copy[:])
+				clearHash0 = clearHash
 			}
 			clearMT.Add(clearHash[:])
 			return nil
@@ -309,4 +349,12 @@ func createProofs() (clearHash0 [32]byte, cipherChunk0 []byte, clearProof, ciphe
 	}
 
 	return clearHash0, cipherChunk0, clearMT.Proof(), cipherMT.Proof(), nil
+}
+
+func gasUsed(rcpts []*types.Receipt) uint64 {
+	var g uint64
+	for _, r := range rcpts {
+		g += r.GasUsed
+	}
+	return g
 }
