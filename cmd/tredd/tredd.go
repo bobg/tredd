@@ -83,14 +83,14 @@ func addFile(file, dir, contentType string) error {
 			contentType = http.DetectContentType(chunk[:n])
 		}
 
-		prefixedClearChunk := tredd.PrefixChunk(index, chunk[:n])
-		tree.Add(prefixedClearChunk)
+		clearHash := sha256.Sum256(chunk[:n])
+		tree.Add(tredd.Prefix(index, clearHash[:]))
 	}
 
-	var clearHash [32]byte
-	copy(clearHash[:], tree.Root())
+	var clearRoot [32]byte
+	copy(clearRoot[:], tree.Root())
 
-	p, destName := clearHashPath(dir, clearHash)
+	p, destName := clearRootPath(dir, clearRoot)
 
 	err = os.MkdirAll(p, 0700)
 	if err != nil {
@@ -121,14 +121,14 @@ func addFile(file, dir, contentType string) error {
 		return errors.Wrapf(err, "copying %s to %s", file, destName)
 	}
 
-	fmt.Printf("added %s (content type %s) as %x\n", file, contentType, clearHash)
+	fmt.Printf("added %s (content type %s) as %x\n", file, contentType, clearRoot)
 
 	return nil
 }
 
-func clearHashPath(root string, clearHash [32]byte) (dir, filename string) {
-	dir = path.Join(root, fmt.Sprintf("%x/%x", clearHash[0:1], clearHash[1:2]))
-	return dir, hex.EncodeToString(clearHash[:])
+func clearRootPath(root string, clearRoot [32]byte) (dir, filename string) {
+	dir = path.Join(root, fmt.Sprintf("%x/%x", clearRoot[0:1], clearRoot[1:2]))
+	return dir, hex.EncodeToString(clearRoot[:])
 }
 
 func decrypt(args []string) {

@@ -65,16 +65,16 @@ func PrepareForRefund(index uint64, clearHashes, cipherChunks ChunkStore) (clear
 	if err != nil {
 		return
 	}
-	copy(clearHashN[:], clearHashNBytes)
+	prefixedClearHashN := Prefix(index, clearHashNBytes)
 
 	cipherChunkN, err = cipherChunks.Get(index)
 	if err != nil {
 		return
 	}
-	prefixedCipherChunkN := PrefixChunk(index, cipherChunkN)
+	prefixedCipherChunkN := Prefix(index, cipherChunkN)
 
 	var (
-		clearMT  = merkle.NewProofHTree(sha256.New(), clearHashNBytes)
+		clearMT  = merkle.NewProofTree(sha256.New(), prefixedClearHashN)
 		cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunkN)
 	)
 
@@ -91,9 +91,10 @@ func PrepareForRefund(index uint64, clearHashes, cipherChunks ChunkStore) (clear
 		if err != nil {
 			return
 		}
-		prefixedCipherChunk := PrefixChunk(i, cipherChunk)
+		prefixedCipherChunk := Prefix(i, cipherChunk)
 		cipherMT.Add(prefixedCipherChunk)
 	}
 
+	copy(clearHashN[:], clearHashNBytes)
 	return clearHashN, cipherChunkN, clearMT.Proof(), cipherMT.Proof(), nil
 }

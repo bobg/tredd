@@ -142,7 +142,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding clear root")}
 	}
 
-	dir, filename := clearHashPath(s.dir, clearRoot)
+	dir, filename := clearRootPath(s.dir, clearRoot)
 	f, err := os.Open(path.Join(dir, filename))
 	if os.IsNotExist(err) {
 		return mid.CodeErr{C: http.StatusNotFound}

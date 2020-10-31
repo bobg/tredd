@@ -51,36 +51,60 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, refchunk := range chunks {
-		tree := merkle.NewProofTree(sha256.New(), refchunk)
-		for _, chunk := range chunks {
-			tree.Add(chunk)
+	for i, refchunk := range chunks {
+		var (
+			chunkTree = merkle.NewProofTree(sha256.New(), Prefix(uint64(i), refchunk))
+			refhash   = sha256.Sum256(refchunk)
+			hashTree  = merkle.NewProofTree(sha256.New(), Prefix(uint64(i), refhash[:]))
+		)
+		for j, chunk := range chunks {
+			chunkTree.Add(Prefix(uint64(j), chunk))
+			hash := sha256.Sum256(chunk)
+			hashTree.Add(Prefix(uint64(j), hash[:]))
 		}
 
-		var root [32]byte
-		copy(root[:], tree.Root())
-		proof := tree.Proof()
+		var chunkRoot [32]byte
+		copy(chunkRoot[:], chunkTree.Root())
+		chunkProof := chunkTree.Proof()
+
+		var hashRoot [32]byte
+		copy(hashRoot[:], hashTree.Root())
+		hashProof := hashTree.Proof()
 
 		callopts := new(bind.CallOpts)
 
-		var leaf [32]byte
-
-		merkle.LeafHash(sha256.New(), leaf[:0], refchunk)
-		ok, err := harness.Contract.CheckProof(callopts, contract.Proof(proof), leaf, root)
+		ok, err := harness.Contract.CheckProofWithPrefixedChunk(callopts, contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !ok {
-			t.Error("proof validation failed")
+			t.Error("chunkTree proof validation failed")
 		}
 
-		leaf[0] ^= 1
-		ok, err = harness.Contract.CheckProof(callopts, contract.Proof(proof), leaf, root)
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(callopts, contract.Proof(hashProof), uint64(i), refhash, hashRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Error("hashTree proof validation failed")
+		}
+
+		refchunk[0] ^= 1
+		ok, err = harness.Contract.CheckProofWithPrefixedChunk(callopts, contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if ok {
-			t.Error("proof validation succeeded unexpectedly")
+			t.Error("chunkTree proof validation succeeded unexpectedly")
+		}
+
+		refhash[0] ^= 1
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(callopts, contract.Proof(hashProof), uint64(i), refhash, hashRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Error("hashTree proof validation succeeded unexpectedly")
 		}
 	}
 }

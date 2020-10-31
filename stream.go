@@ -62,7 +62,7 @@ func Receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]by
 // Both Merkle root hashes are computed from values prepended with the chunk index number.
 func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) ([]byte, error) {
 	var (
-		clearMT  = merkle.NewHTree(sha256.New())
+		clearMT  = merkle.NewTree(sha256.New())
 		cipherMT = merkle.NewTree(sha256.New())
 	)
 
@@ -73,7 +73,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			if err != nil {
 				return errors.Wrap(err, "adding hash to ChunkStore")
 			}
-			clearMT.Add(clearHash[:])
+			clearMT.Add(Prefix(index, clearHash[:]))
 			return nil
 		},
 		func(cipherChunk []byte, index uint64) error {
@@ -81,7 +81,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 			if err != nil {
 				return errors.Wrap(err, "adding chunk to ChunkStore")
 			}
-			prefixedCipherChunk := PrefixChunk(index, cipherChunk)
+			prefixedCipherChunk := Prefix(index, cipherChunk)
 			cipherMT.Add(prefixedCipherChunk)
 			return nil
 		},
@@ -102,11 +102,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 // The return value is the Merkle root hash of the cipher chunks, each prepended with its chunk index.
 // TODO: Cleartext chunks and their hashes can be precomputed and supplied as ChunkStores.
 func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
-	var (
-		cipherMT = merkle.NewTree(sha256.New())
-		hasher   = sha256.New()
-	)
-
+	cipherMT := merkle.NewTree(sha256.New())
 	for index := uint64(0); ; index++ {
 		var chunk [ChunkSize]byte
 		n, err := io.ReadFull(r, chunk[:])
@@ -116,10 +112,8 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "reading clear chunk %d", index)
 		}
 
-		prefixedClearChunk := PrefixChunk(index, chunk[:n])
-		var clearChunkHash [32]byte
-		merkle.LeafHash(hasher, clearChunkHash[:0], prefixedClearChunk)
-		_, err = w.Write(clearChunkHash[:])
+		clearHash := sha256.Sum256(chunk[:n])
+		_, err = w.Write(clearHash[:])
 		if err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
@@ -130,7 +124,7 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
 		}
 
-		prefixedCipherChunk := PrefixChunk(index, chunk[:n])
+		prefixedCipherChunk := Prefix(index, chunk[:n])
 		cipherMT.Add(prefixedCipherChunk)
 	}
 

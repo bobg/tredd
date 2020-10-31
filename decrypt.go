@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bobg/merkle"
 	"github.com/pkg/errors"
 )
 
@@ -15,8 +14,6 @@ import (
 // Along the way, it compares each cleartext chunk's hash to the corresponding value in clearHashes.
 // If it finds a mismatch, it returns a BadClearHashError.
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
-	hasher := sha256.New()
-
 	nhashes, err := clearHashes.Len()
 	if err != nil {
 		return errors.Wrap(err, "counting clear hashes")
@@ -33,10 +30,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		}
 		Crypt(key, chunk, index)
 
-		prefixedGotClearChunk := PrefixChunk(uint64(index), chunk)
-		var gotClearHash [32]byte
-
-		merkle.LeafHash(hasher, gotClearHash[:0], prefixedGotClearChunk)
+		gotClearHash := sha256.Sum256(chunk)
 		if !bytes.Equal(gotClearHash[:], wantClearHash) {
 			return BadClearHashError{Index: index}
 		}

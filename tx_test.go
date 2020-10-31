@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
 
@@ -145,6 +146,15 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	rcpt, err = ClaimRefund(ctx, harness.Client, harness.Buyer, con, 0, cipherChunk0, clearHash0, cipherProof, clearProof)
 	if err != nil {
+		t.Logf("xxx clearRoot %x", testutil.ClearRoot[:])
+		t.Logf("clearProof root %x", clearProof.Hash(sha256.New(), Prefix(0, clearHash0[:])))
+		t.Logf("clearProof %+v", contract.Proof(clearProof))
+		t.Logf("clearHash0 %x", clearHash0[:])
+
+		t.Logf("cipherRoot %x", testutil.CipherRoot[:])
+		t.Logf("cipherProof root %x", cipherProof.Hash(sha256.New(), Prefix(0, cipherChunk0)))
+		t.Logf("cipherProof %+v", contract.Proof(cipherProof))
+
 		t.Fatal(err)
 	}
 
@@ -312,26 +322,27 @@ func createProofs(fraud bool) (clearHash0 [32]byte, cipherChunk0 []byte, clearPr
 	}()
 
 	var (
-		clearMT  *merkle.HTree
+		clearMT  *merkle.Tree
 		cipherMT *merkle.Tree
 	)
 	err = Receive(
 		pr,
 		func(clearHash [32]byte, i uint64) error {
+			prefixedClearHash := Prefix(i, clearHash[:])
 			if i == 0 {
 				clearHash0 = clearHash
-				clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
+				clearMT = merkle.NewProofTree(sha256.New(), prefixedClearHash)
 			} else if i == 1 && fraud {
-				clearMT = merkle.NewProofHTree(sha256.New(), clearHash[:])
+				clearMT = merkle.NewProofTree(sha256.New(), prefixedClearHash)
 				clearHash0Copy := clearHash0 // the merkle tree takes ownership of this memory
-				clearMT.Add(clearHash0Copy[:])
+				clearMT.Add(Prefix(0, clearHash0Copy[:]))
 				clearHash0 = clearHash
 			}
-			clearMT.Add(clearHash[:])
+			clearMT.Add(prefixedClearHash)
 			return nil
 		},
 		func(cipherChunk []byte, i uint64) error {
-			prefixedCipherChunk := PrefixChunk(i, cipherChunk)
+			prefixedCipherChunk := Prefix(i, cipherChunk)
 			if i == 0 {
 				cipherChunk0 = cipherChunk
 				cipherMT = merkle.NewProofTree(sha256.New(), prefixedCipherChunk)

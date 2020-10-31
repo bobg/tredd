@@ -2,14 +2,7 @@ package tredd
 
 import "encoding/binary"
 
-func PrefixHash(n uint64, h [32]byte) []byte {
-	var result [40]byte
-	binary.BigEndian.PutUint64(result[:], n)
-	copy(result[8:], h[:])
-	return result[:]
-}
-
-func PrefixChunk(n uint64, chunk []byte) []byte {
+func Prefix(n uint64, chunk []byte) []byte {
 	result := make([]byte, len(chunk)+8)
 	binary.BigEndian.PutUint64(result, n)
 	copy(result[8:], chunk)
