@@ -29,7 +29,7 @@ func TestProposeCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	_, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +59,11 @@ func TestProposeCancel(t *testing.T) {
 	err = harness.CheckBalances(ctx)
 	if err != nil {
 		t.Error(err)
+		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("contract balance is %s", contractBal)
 	}
 }
 
@@ -291,6 +296,11 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 	err = harness.CheckBalances(ctx)
 	if err != nil {
 		t.Error(err)
+		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("contract balance is %s", contractBal)
 	}
 }
 
