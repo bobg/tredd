@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
@@ -36,7 +36,14 @@ func ProposePayment(
 ) (common.Address, *contract.Tredd, []*types.Receipt, error) {
 	var rcpts []*types.Receipt
 
-	contractAddr, deployTx, con, err := contract.DeployTredd(buyer, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
+	txOpts := buyer
+	if IsETH(tokenType) {
+		o := *txOpts
+		o.Value = amount
+		txOpts = &o
+	}
+
+	contractAddr, deployTx, con, err := contract.DeployTredd(txOpts, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
 	if err != nil {
 		return common.Address{}, nil, nil, errors.Wrap(err, "deploying contract")
 	}
@@ -47,30 +54,24 @@ func ProposePayment(
 	}
 	rcpts = append(rcpts, rcpt)
 
-	var payTx *types.Transaction
-	if IsETH(tokenType) {
-		buyer := *buyer
-		buyer.Value = amount
-
-		raw := &contract.TreddRaw{Contract: con}
-		payTx, err = raw.Transfer(&buyer)
-		if err != nil {
-			return common.Address{}, nil, nil, errors.Wrap(err, "making payment")
-		}
-	} else {
+	if !IsETH(tokenType) {
 		token, err := contract.NewERC20(tokenType, client)
 		if err != nil {
 			return common.Address{}, nil, nil, errors.Wrap(err, "instantiating token")
 		}
-		payTx, err = token.Transfer(buyer, contractAddr, amount)
+		payTx, err := token.Transfer(buyer, contractAddr, amount)
 		if err != nil {
 			return common.Address{}, nil, nil, errors.Wrap(err, "making payment")
 		}
+		rcpt, err = waitMined(ctx, client, payTx)
+		if err != nil {
+			return common.Address{}, nil, nil, errors.Wrap(err, "funding contract")
+		}
+		rcpts = append(rcpts, rcpt)
 	}
 
 	// Wait for payTx to be mined on-chain.
-	rcpt, err = waitMined(ctx, client, payTx)
-	return contractAddr, con, append(rcpts, rcpt), errors.Wrap(err, "awaiting payment transaction")
+	return contractAddr, con, rcpts, nil
 }
 
 // After the reveal deadline, if no reveal has happened, the buyer cancels the contract.

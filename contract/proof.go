@@ -3,12 +3,12 @@ package contract
 import (
 	"fmt"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 )
 
 func Proof(proof merkle.Proof) []TreddProofStep {
-	result := make([]TreddProofStep, 0, len(proof))
-	for _, step := range proof {
+	result := make([]TreddProofStep, 0, len(proof.Steps))
+	for _, step := range proof.Steps {
 		result = append(result, TreddProofStep{H: step.H, Left: step.Left})
 	}
 	return result

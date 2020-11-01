@@ -135,7 +135,7 @@ contract Tredd {
               bytes32 clearRoot,
               bytes32 cipherRoot,
               int64 revealDeadline,
-              int64 refundDeadline) {
+              int64 refundDeadline) payable {
     mBuyer = msg.sender;
     mSeller = seller;
     mTokenType = ERC20(tokenType);

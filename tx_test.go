@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 

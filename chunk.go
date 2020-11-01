@@ -3,7 +3,7 @@ package tredd
 import (
 	"crypto/sha256"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 	"github.com/pkg/errors"
 )
 

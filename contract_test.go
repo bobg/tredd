@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 
 	"github.com/bobg/tredd/contract"

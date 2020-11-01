@@ -12,7 +12,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/bobg/merkle"
+	"github.com/bobg/merkle/v2"
 	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd"
