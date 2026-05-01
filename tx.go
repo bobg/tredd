@@ -252,7 +252,14 @@ func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*
 	if simulated, ok := client.(*backends.SimulatedBackend); ok {
 		simulated.Commit()
 	}
-	return bind.WaitMined(ctx, client, tx)
+	rcpt, err := bind.WaitMined(ctx, client, tx)
+	if err != nil {
+		return nil, err
+	}
+	if rcpt.Status == types.ReceiptStatusFailed {
+		return rcpt, fmt.Errorf("transaction %s failed", tx.Hash().Hex())
+	}
+	return rcpt, nil
 }
 
 var ethAddr common.Address
