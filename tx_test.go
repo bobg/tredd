@@ -47,8 +47,8 @@ func TestProposeCancel(t *testing.T) {
 		t.Fatal("expected a cancel before the reveal deadline to fail")
 	}
 
-	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
-	harness.Client.Commit()
+	harness.Sim.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
+	harness.Sim.Commit()
 
 	rcpt, err := Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err != nil {
@@ -100,7 +100,7 @@ func TestProposeRevealCancel(t *testing.T) {
 		t.Error(err)
 	}
 
-	harness.Client.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
+	harness.Sim.AdjustTime(testutil.RevealDeadlineSecs * time.Second)
 
 	_, err = Cancel(ctx, harness.Client, harness.Buyer, con)
 	if err == nil {
@@ -285,8 +285,8 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 		t.Error(err)
 	}
 
-	harness.Client.AdjustTime(testutil.RefundDeadlineSecs * time.Second)
-	harness.Client.Commit()
+	harness.Sim.AdjustTime(testutil.RefundDeadlineSecs * time.Second)
+	harness.Sim.Commit()
 
 	rcpt, err = ClaimPayment(ctx, harness.Client, harness.Seller, contractAddr)
 	if err != nil {

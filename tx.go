@@ -9,7 +9,6 @@ import (
 	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
@@ -19,6 +18,11 @@ import (
 type clientType interface {
 	bind.ContractBackend
 	bind.DeployBackend
+}
+
+// committer is implemented by simulated backends that can mine a block on demand.
+type committer interface {
+	Commit() common.Hash
 }
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
@@ -249,8 +253,8 @@ func ClaimRefund(
 }
 
 func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*types.Receipt, error) {
-	if simulated, ok := client.(*backends.SimulatedBackend); ok {
-		simulated.Commit()
+	if c, ok := client.(committer); ok {
+		c.Commit()
 	}
 	rcpt, err := bind.WaitMined(ctx, client, tx)
 	if err != nil {
