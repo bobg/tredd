@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
+	"github.com/bobg/errors"
 )
 
 // Decrypt decrypts the chunks in cipherChunks by xoring with hashes derived from key.

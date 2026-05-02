@@ -9,12 +9,12 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 )

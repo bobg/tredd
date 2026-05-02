@@ -18,12 +18,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/mid"
-	"github.com/bobg/sqlutil"
+	"github.com/bobg/seqs"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 
@@ -72,19 +72,16 @@ func serve(args []string) {
 		client: client,
 	}
 
-	var transferIDs [][]byte
-	err = sqlutil.ForQueryRows(ctx, db, "SELECT transfer_id FROM transfer_records", func(transferID []byte) {
-		transferIDs = append(transferIDs, transferID)
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, transferID := range transferIDs {
+	rows, errptr := seqs.SQL[[]byte](ctx, db, "SELECT transfer_id FROM transfer_records")
+	for transferID := range rows {
 		log.Printf("queueing claim-payment callback for transfer %x", transferID)
 		err = s.queueClaimPayment(ctx, transferID)
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+	if err := *errptr; err != nil {
+		log.Fatal(err)
 	}
 
 	listener, err := net.Listen("tcp", *addr)

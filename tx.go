@@ -6,12 +6,12 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 )

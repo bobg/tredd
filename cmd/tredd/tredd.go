@@ -12,8 +12,8 @@ import (
 	"os"
 	"path"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd"
 	"github.com/bobg/tredd/contract"

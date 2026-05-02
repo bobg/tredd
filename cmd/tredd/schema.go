@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/bobg/errors"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/pkg/errors"
 )
 
 const schema = `

@@ -3,8 +3,8 @@ package tredd
 import (
 	"crypto/sha256"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/pkg/errors"
 )
 
 // ChunkSize is the size of a chunk of Tredd data.
