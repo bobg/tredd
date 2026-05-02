@@ -3,7 +3,8 @@ package tredd
 import (
 	"bytes"
 	"encoding/hex"
-	"io/ioutil"
+	"io"
+
 	"os"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestServeGetDecrypt(t *testing.T) {
 	}
 	defer f.Close()
 
-	text, err := ioutil.ReadAll(f)
+	text, err := io.ReadAll(f)
 	if err != nil {
 		t.Fatal(err)
 	}

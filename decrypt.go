@@ -18,7 +18,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 	if err != nil {
 		return errors.Wrap(err, "counting clear hashes")
 	}
-	for index := uint64(0); index < nhashes; index++ {
+	for index := range nhashes {
 		wantClearHash, err := clearHashes.Get(index)
 		if err != nil {
 			return errors.Wrapf(err, "getting clear hash %d", index)

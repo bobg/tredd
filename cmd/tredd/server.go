@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"net"
@@ -149,7 +148,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	}
 	defer f.Close()
 
-	contentType, err := ioutil.ReadFile(path.Join(dir, "content-type"))
+	contentType, err := os.ReadFile(path.Join(dir, "content-type"))
 	if err != nil {
 		return errors.Wrap(err, "getting content type")
 	}
@@ -214,7 +213,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	w.Header().Set("X-Tredd-Transfer-Id", hex.EncodeToString(transferID[:]))
 	w.Header().Set("Content-Type", string(contentType))
 
-	tmpfile, err := ioutil.TempFile("", "treddserve")
+	tmpfile, err := os.CreateTemp("", "treddserve")
 	if err != nil {
 		return errors.Wrap(err, "creating response tempfile")
 	}
@@ -355,7 +354,7 @@ func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
-	var contractAddr interface{}
+	var contractAddr any
 	if rec.contractAddr != nil {
 		contractAddr = *rec.contractAddr
 	}
