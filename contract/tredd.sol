@@ -1,5 +1,5 @@
-pragma solidity ^0.7.2; // TODO: determine the best (lowest?) version number that works here.
-pragma experimental ABIEncoderV2; // This is needed to compile the ProofStep[] params of refund().
+pragma solidity ^0.8.33;
+pragma abicoder v2; // This is needed to compile the ProofStep[] params of refund().
 
 // This interface is copied from
 // https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v3.0.0/contracts/token/ERC20/IERC20.sol.
@@ -116,10 +116,10 @@ contract Tredd {
   bytes32 public mCipherRoot;
 
   // Seller must reveal the decryption key by this time.
-  int64 public mRevealDeadline;
+  uint64 public mRevealDeadline;
 
   // Buyer must claim a refund by this time.
-  int64 public mRefundDeadline;
+  uint64 public mRefundDeadline;
 
   // The seller supplies this.
   bytes32 public mDecryptionKey;
@@ -134,8 +134,8 @@ contract Tredd {
               uint collateral,
               bytes32 clearRoot,
               bytes32 cipherRoot,
-              int64 revealDeadline,
-              int64 refundDeadline) payable {
+              uint64 revealDeadline,
+              uint64 refundDeadline) payable {
     mBuyer = msg.sender;
     mSeller = seller;
     mTokenType = ERC20(tokenType);
@@ -175,7 +175,7 @@ contract Tredd {
       }
     }
 
-    selfdestruct(msg.sender);
+    selfdestruct(payable(msg.sender));
   }
 
   event evDecryptionKey(bytes32 decryptionKey);
@@ -277,7 +277,7 @@ contract Tredd {
     }
 
     // 5. Self destruct.
-    selfdestruct(msg.sender);
+    selfdestruct(payable(msg.sender));
   }
 
   // The seller claims payment (and reclaims collateral) after the refund deadline.
@@ -289,6 +289,6 @@ contract Tredd {
       require (mTokenType.transfer(mSeller, mAmount+mCollateral));
     }
 
-    selfdestruct(msg.sender);
+    selfdestruct(payable(msg.sender));
   }
 }

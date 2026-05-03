@@ -6,14 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
+
 	"log"
 	"net/http"
 	"os"
 	"path"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd"
 	"github.com/bobg/tredd/contract"
@@ -99,7 +99,7 @@ func addFile(file, dir, contentType string) error {
 
 	f.Close()
 
-	err = ioutil.WriteFile(path.Join(p, "content-type"), []byte(contentType), 0600)
+	err = os.WriteFile(path.Join(p, "content-type"), []byte(contentType), 0600)
 	if err != nil {
 		return errors.Wrapf(err, "storing content type: %s", err)
 	}

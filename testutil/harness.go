@@ -9,12 +9,16 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
-	"github.com/pkg/errors"
+	"github.com/ethereum/go-ethereum/eth/ethconfig"
+	"github.com/ethereum/go-ethereum/ethclient/simulated"
+	"github.com/ethereum/go-ethereum/node"
 
 	"github.com/bobg/tredd/contract"
 )
@@ -61,6 +65,7 @@ func init() {
 
 type Harness struct {
 	Buyer, Seller                  *bind.TransactOpts
+	Sim                            *simulated.Backend
 	Client                         *backends.SimulatedBackend
 	RevealDeadline, RefundDeadline time.Time
 	ContractAddr                   common.Address // only set after Harness.Deploy is called
@@ -82,27 +87,51 @@ func NewHarness() (*Harness, error) {
 		return nil, err
 	}
 	buyerKey.Curve = &curve
-	buyer := bind.NewKeyedTransactor(&buyerKey)
+	buyer, err := bind.NewKeyedTransactorWithChainID(&buyerKey, big.NewInt(1337))
+	if err != nil {
+		return nil, err
+	}
+	buyer.GasPrice = big.NewInt(1)
 
 	err = json.Unmarshal([]byte(sellerKeyJSON), &sellerKey)
 	if err != nil {
 		return nil, err
 	}
 	sellerKey.Curve = &curve
-	seller := bind.NewKeyedTransactor(&sellerKey)
+	seller, err := bind.NewKeyedTransactorWithChainID(&sellerKey, big.NewInt(1337))
+	if err != nil {
+		return nil, err
+	}
+	seller.GasPrice = big.NewInt(1)
 
 	alloc := core.GenesisAlloc{
 		buyer.From:  core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
 		seller.From: core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
 	}
 
-	client := backends.NewSimulatedBackend(alloc, 4712388) // This number comes from https://goethereumbook.org/client-simulated/
+	// Use simulated.NewBackend directly so we can set the genesis base fee to
+	// zero.  This lets us use legacy transactions with GasPrice=1 wei, which
+	// keeps the per-gas cost at 1 wei and preserves the balance arithmetic in
+	// tests.  WithMinerMinTip(1) sets the minimum inclusion tip to 1 wei.
+	sim := simulated.NewBackend(
+		types.GenesisAlloc(alloc),
+		simulated.WithBlockGasLimit(30_000_000),
+		simulated.WithMinerMinTip(big.NewInt(1)),
+		func(_ *node.Config, ethConf *ethconfig.Config) {
+			ethConf.Genesis.BaseFee = big.NewInt(0)
+		},
+	)
+	client := &backends.SimulatedBackend{
+		Backend: sim,
+		Client:  sim.Client(),
+	}
 
-	now := time.Unix(0, 0)
+	now := time.Now()
 
 	return &Harness{
 		Buyer:          buyer,
 		Seller:         seller,
+		Sim:            sim,
 		Client:         client,
 		RevealDeadline: now.Add(RevealDeadlineSecs * time.Second),
 		RefundDeadline: now.Add(RefundDeadlineSecs * time.Second),
@@ -117,7 +146,7 @@ var (
 )
 
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, h.RevealDeadline.Unix(), h.RefundDeadline.Unix())
+	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, uint64(h.RevealDeadline.Unix()), uint64(h.RefundDeadline.Unix()))
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
 	}
@@ -130,7 +159,7 @@ func (h *Harness) Deploy(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "transfering buyer payment to contract")
 	}
-	h.Client.Commit()
+	h.Sim.Commit()
 
 	h.ContractAddr = addr
 	h.Contract = con

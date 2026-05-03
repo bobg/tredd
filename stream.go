@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"io"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/pkg/errors"
 )
 
 var (

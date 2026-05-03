@@ -164,7 +164,7 @@ func TestDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	harness.Client.Commit()
+	harness.Sim.Commit()
 
 	callopts := new(bind.CallOpts)
 

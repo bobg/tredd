@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  build:
+    deps: [contract_go]
+    desc: Build Tredd
+    cmds:
+      - go build ./cmd/tredd
+
+  contract_go:
+    deps: [contract_erc20_go, contract_tredd_go]
+
+  contract_erc20_go:
+    deps: [contract_sol]
+    desc: Generate contract/erc20.go
+    cmds:
+      - go tool abigen --abi ERC20.abi --pkg contract --type ERC20 --out erc20.go
+    dir: contract
+    sources:
+      - contract/ERC20.abi
+    generates:
+      - contract/erc20.go
+
+  contract_tredd_go:
+    deps: [contract_sol]
+    desc: Generate contract/tredd.go
+    cmds:
+      - go tool abigen --abi Tredd.abi --bin Tredd.bin --pkg contract --type Tredd --out tredd.go
+    dir: contract
+    sources:
+      - contract/Tredd.abi
+      - contract/Tredd.bin
+    generates:
+      - contract/tredd.go
+
+  contract_sol:
+    desc: Compile contract/tredd.sol and generate Go bindings (downloads solc automatically)
+    cmds:
+      - go run ./contract/generate
+    sources:
+      - contract/tredd.sol
+    generates:
+      - contract/ERC20.abi
+      - contract/Tredd.abi
+      - contract/Tredd.bin

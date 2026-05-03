@@ -6,12 +6,11 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/pkg/errors"
 
 	"github.com/bobg/tredd/contract"
 )
@@ -19,6 +18,11 @@ import (
 type clientType interface {
 	bind.ContractBackend
 	bind.DeployBackend
+}
+
+// committer is implemented by simulated backends that can mine a block on demand.
+type committer interface {
+	Commit() common.Hash
 }
 
 // ProposePayment publishes a new instance of the Tredd contract instantiated with the given parameters.
@@ -43,7 +47,7 @@ func ProposePayment(
 		txOpts = &o
 	}
 
-	contractAddr, deployTx, con, err := contract.DeployTredd(txOpts, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, revealDeadline.Unix(), refundDeadline.Unix())
+	contractAddr, deployTx, con, err := contract.DeployTredd(txOpts, client, seller, tokenType, amount, collateral, clearRoot, cipherRoot, uint64(revealDeadline.Unix()), uint64(refundDeadline.Unix()))
 	if err != nil {
 		return common.Address{}, nil, nil, errors.Wrap(err, "deploying contract")
 	}
@@ -151,8 +155,8 @@ func RevealKey(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
 	}
-	gotRevealDeadline := time.Unix(gotRevealDeadlineSecs, 0)
-	if gotRevealDeadlineSecs != wantRevealDeadline.Unix() { // lop off fractional seconds from wantRevealDeadline
+	gotRevealDeadline := time.Unix(int64(gotRevealDeadlineSecs), 0)
+	if int64(gotRevealDeadlineSecs) != wantRevealDeadline.Unix() { // lop off fractional seconds from wantRevealDeadline
 		return nil, nil, fmt.Errorf("reveal deadline is %s, want %s", gotRevealDeadline, wantRevealDeadline)
 	}
 
@@ -164,8 +168,8 @@ func RevealKey(
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
-	if gotRefundDeadlineSecs != wantRefundDeadline.Unix() { // lop off fractional seconds from wantRefundDeadline
-		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", time.Unix(gotRefundDeadlineSecs, 0), wantRefundDeadline)
+	if int64(gotRefundDeadlineSecs) != wantRefundDeadline.Unix() { // lop off fractional seconds from wantRefundDeadline
+		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", time.Unix(int64(gotRefundDeadlineSecs), 0), wantRefundDeadline)
 	}
 
 	paidAmount, err := con.Paid(callOpts)
@@ -249,8 +253,8 @@ func ClaimRefund(
 }
 
 func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*types.Receipt, error) {
-	if simulated, ok := client.(*backends.SimulatedBackend); ok {
-		simulated.Commit()
+	if c, ok := client.(committer); ok {
+		c.Commit()
 	}
 	rcpt, err := bind.WaitMined(ctx, client, tx)
 	if err != nil {

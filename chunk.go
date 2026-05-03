@@ -3,8 +3,8 @@ package tredd
 import (
 	"crypto/sha256"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/pkg/errors"
 )
 
 // ChunkSize is the size of a chunk of Tredd data.
@@ -41,10 +41,7 @@ func Crypt(key [32]byte, chunk []byte, index uint64) error {
 		hasher.Sum(subkey[:0])
 
 		pos := 32 * i
-		end := pos + 32
-		if end > len(chunk) {
-			end = len(chunk)
-		}
+		end := min(pos+32, len(chunk))
 
 		for j := 0; pos+j < end; j++ {
 			chunk[pos+j] ^= subkey[j]

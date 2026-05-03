@@ -14,14 +14,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bobg/errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/pkg/errors"
-
-	"github.com/bobg/tredd/contract"
 
 	"github.com/bobg/tredd"
+	"github.com/bobg/tredd/contract"
 )
 
 func get(args []string) {
