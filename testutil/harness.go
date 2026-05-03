@@ -146,7 +146,7 @@ var (
 )
 
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, h.RevealDeadline.Unix(), h.RefundDeadline.Unix())
+	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, uint64(h.RevealDeadline.Unix()), uint64(h.RefundDeadline.Unix()))
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
 	}

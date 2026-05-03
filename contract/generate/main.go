@@ -19,7 +19,7 @@ import (
 	solc "github.com/lmittmann/go-solc"
 )
 
-const pinnedVersion = solc.Version0_7_2
+const pinnedVersion = solc.Version0_8_33
 
 func main() {
 	if err := run(); err != nil {
@@ -46,7 +46,7 @@ func run() error {
 	if _, err := compiler.Compile("contract", "Tredd"); err != nil {
 		// If the binary doesn't exist after this, it was a download failure.
 		if _, statErr := os.Stat(solcBin); statErr != nil {
-			return errors.Wrap(err, "Downloading solc")
+			return errors.Wrap(err, "downloading solc")
 		}
 		// Otherwise the download succeeded; the error was a compilation issue
 		// that the direct invocation below will surface more clearly.
@@ -57,7 +57,13 @@ func run() error {
 	cmd.Dir = "contract"
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return errors.Wrapf(err, "running %s", cmd)
+	}
+
+	os.Remove("contract/ERC20.bin") // we don't need this one
+
+	return nil
 }
 
 // solcBinaryPath returns the path where go-solc caches the binary.
