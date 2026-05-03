@@ -13,6 +13,7 @@ tasks:
     deps: [contract_erc20_go, contract_tredd_go]
 
   contract_erc20_go:
+    deps: [contract_sol]
     desc: Generate contract/erc20.go
     cmds:
       - go tool abigen --abi ERC20.abi --pkg contract --type ERC20 --out erc20.go
@@ -23,6 +24,7 @@ tasks:
       - contract/erc20.go
 
   contract_tredd_go:
+    deps: [contract_sol]
     desc: Generate contract/tredd.go
     cmds:
       - go tool abigen --abi Tredd.abi --bin Tredd.bin --pkg contract --type Tredd --out tredd.go
