@@ -36,10 +36,9 @@ tasks:
       - contract/tredd.go
 
   contract_sol:
-    desc: Compile contract/tredd.sol to generate .abi and .bin files
+    desc: Compile contract/tredd.sol and generate Go bindings (downloads solc automatically)
     cmds:
-      - solc --abi --bin --overwrite -o . tredd.sol
-    dir: contract
+      - go run ./contract/generate
     sources:
       - contract/tredd.sol
     generates:

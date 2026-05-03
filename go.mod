@@ -8,6 +8,7 @@ require (
 	github.com/bobg/mid v1.9.2
 	github.com/bobg/seqs v1.9.0
 	github.com/ethereum/go-ethereum v1.17.2
+	github.com/lmittmann/go-solc v0.6.0
 	github.com/mattn/go-sqlite3 v1.14.44
 )
 
