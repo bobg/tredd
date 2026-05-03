@@ -27,3 +27,9 @@ see
 For the motivation behind Tredd, see [Why Tredd](Why.md).
 
 For step-by-step instructions for running the Tredd server and client, see [Trying Tredd](Try.md).
+
+## Building Tredd
+
+```sh
+go tool task build
+```
