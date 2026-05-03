@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"log"
 	"net/http"
@@ -14,48 +15,68 @@ import (
 
 	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
+	"github.com/bobg/subcmd/v2"
 
 	"github.com/bobg/tredd"
 	"github.com/bobg/tredd/contract"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("usage: tredd add [-dir DIR] FILE ...")
-	}
-	switch os.Args[1] {
-	case "add":
-		add(os.Args[2:])
-	case "decrypt":
-		decrypt(os.Args[2:])
-	case "get":
-		get(os.Args[2:])
-	case "serve":
-		serve(os.Args[2:])
-	case "abi":
-		fmt.Println(contract.TreddABI)
-	default:
-		log.Fatalf("unknown subcommand %s", os.Args[1])
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(1)
 	}
 }
 
-func add(args []string) {
-	fs := flag.NewFlagSet("", flag.PanicOnError)
+func run() error {
+	ctx := context.Background()
+	return subcmd.Run(ctx, maincmd{}, os.Args[1:])
+}
 
-	var (
-		dir         = fs.String("dir", ".", "root of content tree")
-		contentType = fs.String("type", "", "MIME content type (default: inferred)")
+type maincmd struct{}
+
+func (maincmd) Subcmds() subcmd.Map {
+	return subcmd.Commands(
+		"add", add, "add files to a content tree", subcmd.Params(
+			"-dir", subcmd.String, ".", "root of content tree",
+			"-type", subcmd.String, "", "MIME content type (default: inferred)",
+		),
+		"decrypt", decrypt, "decrypt data from stdin using the given key", subcmd.Params(
+			"-key", subcmd.String, "", "decryption key (hex)",
+		),
+		"get", get, "propose payment and get a file from a tredd server", subcmd.Params(
+			"-hash", subcmd.String, "", "clear-chunk Merkle root hash of requested file",
+			"-token", subcmd.String, "", "token type (ERC20 hex address) of proposed payment, or omit for ETH",
+			"-amount", subcmd.String, "1", "amount of proposed payment",
+			"-collateral", subcmd.String, "1", "amount of proposed collateral",
+			"-reveal", subcmd.Duration, 15*time.Minute, "time until reveal deadline, in time.ParseDuration format",
+			"-refund", subcmd.Duration, 30*time.Minute, "time from reveal deadline until refund deadline, in time.ParseDuration format",
+			"-server", subcmd.String, "", "base URL of tredd server",
+			"-ethurl", subcmd.String, "", "base URL of Ethereum server",
+			"-dir", subcmd.String, "", "root dir for file transfers",
+			"-seller", subcmd.String, "", "seller address (hex)",
+			"-keyfile", subcmd.String, "", "path to Ethereum keyfile for payment",
+			"-passphrase", subcmd.String, "", "passphrase for Ethereum keyfile",
+		),
+		"serve", serve, "start a tredd server", subcmd.Params(
+			"-addr", subcmd.String, "localhost:20544", "server listen address",
+			"-dir", subcmd.String, ".", "root of content tree",
+			"-db", subcmd.String, "", "file containing server-state db",
+			"-ethurl", subcmd.String, "", "base URL of Ethereum server",
+			"-keyfile", subcmd.String, "", "path to Ethereum keyfile for payment",
+			"-passphrase", subcmd.String, "", "passphrase for Ethereum keyfile",
+		),
+		"abi", abi, "print the Tredd contract ABI", nil,
 	)
-	err := fs.Parse(args)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, file := range fs.Args() {
-		err = addFile(file, *dir, *contentType)
-		if err != nil {
+}
+
+func add(_ context.Context, dir, contentType string, args []string) error {
+	for _, file := range args {
+		if err := addFile(file, dir, contentType); err != nil {
 			log.Printf("WARNING: while processing %s: %s", file, err)
 		}
 	}
+	return nil
 }
 
 func addFile(file, dir, contentType string) error {
@@ -131,17 +152,10 @@ func clearRootPath(root string, clearRoot [32]byte) (dir, filename string) {
 	return dir, hex.EncodeToString(clearRoot[:])
 }
 
-func decrypt(args []string) {
-	fs := flag.NewFlagSet("", flag.PanicOnError)
-	keyHex := fs.String("key", "", "decryption key (hex)")
-	err := fs.Parse(args)
-	if err != nil {
-		log.Fatal(err)
-	}
+func decrypt(_ context.Context, keyHex string, _ []string) error {
 	var key [32]byte
-	_, err = hex.Decode(key[:], []byte(*keyHex))
-	if err != nil {
-		log.Fatal(err)
+	if _, err := hex.Decode(key[:], []byte(keyHex)); err != nil {
+		return errors.Wrap(err, "decoding key")
 	}
 	for index := uint64(0); ; index++ {
 		var buf [tredd.ChunkSize]byte
@@ -156,4 +170,11 @@ func decrypt(args []string) {
 		tredd.Crypt(key, buf[:n], index)
 		os.Stdout.Write(buf[:n])
 	}
+
+	return nil
+}
+
+func abi(_ context.Context, _ []string) error {
+	_, err := fmt.Println(contract.TreddABI)
+	return err
 }
