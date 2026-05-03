@@ -115,7 +115,7 @@ func NewHarness() (*Harness, error) {
 	// tests.  WithMinerMinTip(1) sets the minimum inclusion tip to 1 wei.
 	sim := simulated.NewBackend(
 		types.GenesisAlloc(alloc),
-		simulated.WithBlockGasLimit(4712388),
+		simulated.WithBlockGasLimit(30_000_000),
 		simulated.WithMinerMinTip(big.NewInt(1)),
 		func(_ *node.Config, ethConf *ethconfig.Config) {
 			ethConf.Genesis.BaseFee = big.NewInt(0)
