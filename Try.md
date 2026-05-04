@@ -3,154 +3,191 @@
 First, install the tredd binary.
 
 ```sh
-$ go get github.com/bobg/tredd/...
+$ go install github.com/bobg/tredd/cmd/tredd@latest
 ```
 
-Install the binaries from the github.com/chain/txvm package:
+## Setting up an Ethereum test node
 
-```sh
-$ go get github.com/chain/txvm/cmd/...
-```
+Tredd's Ethereum port requires a connection to an Ethereum node.
+For local experimentation, use `geth` (go-ethereum) in developer mode,
+which provides a single-node chain with a pre-funded account and instant block mining.
 
-Download and install txvmbcd, a minimal TxVM blockchain server:
+Install geth by following the instructions at https://geth.ethereum.org/docs/getting-started/installing-geth,
+or via your system package manager.
 
-```sh
-$ go get -u github.com/bobg/txvmbcd
-```
-
-Create a directory to hold tredd and txvmbcd files and subdirectories.
+Create a directory to hold tredd and geth files:
 
 ```sh
 $ mkdir /path/to/dir
-```
-
-Launch an instance of txvmbcd in that directory:
-
-```sh
 $ cd /path/to/dir
-$ txvmbcd -db txvmbcd.db
 ```
 
-This will create the file `txvmbcd.db` and produce log output in the shell,
-including the listen address of the txvmbcd server,
-and the hash of the initial block,
-both of which you’ll need later.
-
-The txvmbcd blockchain is empty.
-It needs to be populated with some data before it can be used for Tredd.
-
-In a separate shell,
-cd to the directory and create a private/public keypair for an asset issuer:
+Start geth in developer mode with the HTTP RPC server enabled:
 
 ```sh
-$ cd /path/to/dir
-$ ed25519 gen | tee issuer.prv | ed25519 pub >issuer.pub
+$ geth --dev --http --http.api eth,personal,web3 --datadir geth-dev-data 2>geth.log &
 ```
 
-Compute the ID of the default asset produced by this issuer:
+This starts geth listening on `http://127.0.0.1:8545` by default.
+The `--dev` flag creates a pre-funded developer account,
+auto-mines blocks, and persists chain data under `geth-dev-data/`.
+
+## Creating seller and buyer accounts
+
+Tredd identifies sellers and buyers by their Ethereum accounts.
+Each account is represented by an encrypted keystore file.
+
+Create a keystore directory and generate a keystore for the seller:
 
 ```sh
-$ assetid 1 `hex <issuer.pub` >asset-id
+$ geth --datadir geth-dev-data account new
 ```
 
-Create a private/public keypair for a Tredd seller of some information:
+Enter a passphrase when prompted.
+Geth will print the new account address and store the keystore file under
+`geth-dev-data/keystore/`.
+Note the address printed — this is the **seller address**.
+Then run the same command again to create a **buyer account**,
+and note its address separately.
+
+For convenience, set shell variables for the addresses and keystore files:
 
 ```sh
-$ ed25519 gen | tee seller.prv | ed25519 pub >seller.pub
+$ SELLER_ADDR=0xYOUR_SELLER_ADDRESS
+$ BUYER_ADDR=0xYOUR_BUYER_ADDRESS
+$ SELLER_KEYFILE=geth-dev-data/keystore/YOUR_SELLER_KEYSTORE_FILENAME
+$ BUYER_KEYFILE=geth-dev-data/keystore/YOUR_BUYER_KEYSTORE_FILENAME
 ```
 
-Also for a Tredd buyer:
+## Funding the accounts
+
+The `geth --dev` chain has a pre-funded developer account (the coinbase).
+Attach a JavaScript console to the running node to send ETH to the seller and buyer:
 
 ```sh
-$ ed25519 gen | tee buyer.prv | ed25519 pub >buyer.pub
+$ geth attach geth-dev-data/geth.ipc
 ```
 
-Build and submit a transaction to the blockchain that issues 100 units of that asset,
-sending 50 to the seller and 50 to the buyer:
+In the console:
 
-```sh
-$ tx build issue -blockchain BLOCKCHAINID -quorum 1 -prv `hex <issuer.prv` -pub `hex <issuer.pub` -amount 100 output -quorum 1 -pub `hex <seller.pub` -amount 50 -assetid `hex <asset-id` output -quorum 1 -pub `hex <buyer.pub` -amount 50 -assetid `hex <asset-id` | curl --data-binary @- http://LISTENADDR/submit
+```javascript
+// Unlock the coinbase dev account (no passphrase needed in --dev mode)
+eth.sendTransaction({from: eth.coinbase, to: "SELLER_ADDR", value: web3.toWei(10, "ether")})
+eth.sendTransaction({from: eth.coinbase, to: "BUYER_ADDR",  value: web3.toWei(10, "ether")})
+exit
 ```
 
-Here,
-BLOCKCHAINID is the hash of the initial block and LISTENADDR is the txvmbcd listen address,
-both reported when txvmbcd started.
+Replace `SELLER_ADDR` and `BUYER_ADDR` with the hex addresses you noted above.
+Both accounts now have 10 ETH to cover payments, collateral, and gas fees.
 
-Now the blockchain is populated. It’s time to populate the Tredd server with some content.
+## Adding content to the server
 
-First, make a subdirectory for server content:
+Create a subdirectory for server content:
 
 ```sh
 $ mkdir server-content
 ```
 
-Now choose some file and add it to that content tree:
+Add a file to the content tree:
 
 ```sh
 $ tredd add -dir server-content /path/to/file
 ```
 
-This command will report the hash of the added content. You will need that in a moment.
+This command prints the content hash, for example:
 
-With content in the server tree, it’s time to launch the server:
-
-```sh
-$ tredd serve -dir server-content -db server.db -prv seller.prv -url http://LISTENADDR
+```
+added /path/to/file (content type text/plain; charset=utf-8) as a3b4c5...
 ```
 
-Here, LISTENADDR is the address of the txvmbcd server, still running in another shell.
+Keep this hash — you will need it when issuing the buy request.
 
-This will create the file `server.db` and produce log output in the shell,
-including the listen address of the Tredd server, which you’ll need in the next step.
+## Launching the Tredd server
 
-With the txvmbcd and Tredd servers running, it’s time to request and pay for some content.
+Start the Tredd server, pointing it at the geth node and using the seller's keystore:
 
-In a third shell,
-cd to the directory and create a subdirectory to hold content retrieved from the Tredd server:
+```sh
+$ tredd serve \
+    -dir server-content \
+    -db server.db \
+    -ethurl http://127.0.0.1:8545 \
+    -keyfile $SELLER_KEYFILE \
+    -passphrase YOUR_SELLER_PASSPHRASE
+```
+
+This creates `server.db` and logs the Tredd server's listen address
+default `localhost:20544`.
+
+## Buying content
+
+In a separate shell, create a directory to hold downloaded content:
 
 ```sh
 $ cd /path/to/dir
 $ mkdir client-content
 ```
 
-Finally, issue a “get” request to the Tredd server:
+Issue a `get` request to the Tredd server:
 
 ```sh
-$ tredd get -hash HASH -amount 1 -asset `hex <asset-id` -reveal 15m -refund 15m -db client.db -prv buyer.prv -server http://TREDDLISTEN -bcurl http://TXVMBCDLISTEN -dir client-content
+$ tredd get \
+    -hash CONTENT_HASH \
+    -amount 1000000000000000000 \
+    -collateral 1000000000000000000 \
+    -reveal 15m \
+    -refund 30m \
+    -server http://localhost:20544 \
+    -ethurl http://127.0.0.1:8545 \
+    -seller $SELLER_ADDR \
+    -keyfile $BUYER_KEYFILE \
+    -passphrase YOUR_BUYER_PASSPHRASE \
+    -dir client-content
 ```
 
-Here,
-HASH is the hash of the desired content,
-reported above by `tredd add`,
-TREDDLISTEN is the address of the Tredd server,
-and TXVMBCDLISTEN is the address of the txvmbcd server.
+Here:
 
-This command will send a request to the Tredd server proposing payment of 1 unit of our defined asset in exchange for the content identified by HASH.
-The proposal also includes a deadline of 15 minutes for the server to publish its “reveal-key” transaction on the blockchain,
-and another 15 minutes for the client to claim a refund if warranted.
+- `CONTENT_HASH` is the hex hash reported by `tredd add`.
+- `-amount` and `-collateral` are denominated in **wei**
+  (1 ETH = 10¹⁸ wei; the example above proposes 1 ETH payment and 1 ETH collateral).
+  Adjust to taste — even `1` wei works on a local test chain.
+- `-reveal` is how long the seller has to publish the decryption key on-chain.
+- `-refund` is how long after the reveal deadline the buyer has to claim a refund
+  if the decrypted content is wrong.
+  It must be at most 1 hour after the reveal deadline.
+- `-seller` is the seller's Ethereum address (hex).
+- To pay with an ERC20 token instead of ETH, add `-token TOKEN_CONTRACT_ADDRESS`.
 
-The server accepts the proposal,
-chooses a unique transfer ID and a random encryption key,
-and responds with an encrypted copy of the desired content as chunks interleaved with each chunk’s “clear hash”
-(the hash it should have after decryption).
-The client stores these chunks and hashes,
-and double-checks that the stream of hashes produces a Merkle tree whose root is the HASH given above.
+## What happens under the hood
 
-Now the client constructs a partial TxVM transaction and sends it to the server.
-The transaction includes payment and a call to the Tredd contract that enforces the agreed terms of the transfer.
+1. The client sends an HTTP request to the Tredd server proposing the payment terms.
+2. The server encrypts the content with a fresh random key and streams back the
+   ciphertext chunks interleaved with their clear-hashes.
+   The client stores these and verifies they form a Merkle tree whose root
+   matches `CONTENT_HASH`.
+3. The client deploys a Tredd smart contract on Ethereum, funded with the proposed
+   payment amount.
+   The contract encodes the agreed terms (seller address, payment amount, collateral,
+   Merkle roots, and deadlines).
+4. The client notifies the server of the contract address.
+5. The server calls `reveal()` on the contract, supplying the decryption key
+   and the required collateral.
+   This emits an on-chain event containing the key.
+6. The client watches the chain, receives the key event, and decrypts the content.
+   It verifies each decrypted chunk against its clear-hash.
+   - If all chunks are correct, the transfer is complete.
+     The decrypted file is written to `client-content/CONTENT_HASH`.
+   - If a chunk is wrong, the client calls `refund()` on the contract with a
+     Merkle proof of the bad chunk, reclaiming the payment plus the seller's collateral.
+7. After the refund deadline passes, the server calls `claimPayment()` to collect
+   the buyer's payment and reclaim its collateral.
 
-The server completes the transaction by adding its collateral payment and revealing the decryption key.
-It publishes the completed transaction to the blockchain and schedules a task for after the “refund deadline” to claim its payment.
+## Utility subcommands
 
-The client,
-observing the blockchain,
-sees the completed transaction and parses out the server’s key.
-It uses that to decrypt the content it received earlier,
-checking along the way that each decrypted chunk has the hash it’s supposed to.
-If it does,
-the transfer is complete.
-If some chunk doesn’t have the right hash,
-it constructs and publishes a “claim-refund” transaction to the blockchain.
+```sh
+# Print the Tredd contract ABI
+$ tredd abi
 
-After a successful transfer,
-the retrieved content is in the file client-content/HASH.
+# Manually decrypt a stream of ciphertext chunks read from stdin
+# (supply the 32-byte key as hex)
+$ tredd decrypt -key KEYHEX < encrypted-file > decrypted-file
+```
