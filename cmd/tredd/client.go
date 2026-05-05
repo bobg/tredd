@@ -59,10 +59,10 @@ func get(ctx context.Context,
 		collateral = new(big.Int)
 	)
 	if _, ok := amount.SetString(amountStr, 10); !ok {
-		return fmt.Errorf("Error parsing amount string %q", amountStr)
+		return fmt.Errorf("error parsing amount string %q", amountStr)
 	}
 	if _, ok := collateral.SetString(collateralStr, 10); !ok {
-		return fmt.Errorf("Error parsing collateralStr string %q", collateralStr)
+		return fmt.Errorf("error parsing collateralStr string %q", collateralStr)
 	}
 
 	client, err := ethclient.Dial(ethURL)
