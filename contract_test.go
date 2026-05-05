@@ -2,23 +2,21 @@ package tredd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"io"
-	"math"
+	"math/big"
 	"os"
 	"testing"
 
-	"github.com/bobg/merkle"
-	"github.com/chain/txvm/errors"
-	"github.com/chain/txvm/protocol/txvm"
-	"github.com/chain/txvm/protocol/txvm/asm"
-	"github.com/chain/txvm/protocol/txvm/op"
-	"github.com/chain/txvm/protocol/txvm/txvmutil"
+	"github.com/bobg/merkle/v2"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
+
+	"github.com/bobg/tredd/contract"
+	"github.com/bobg/tredd/testutil"
 )
 
-func TestTxVMMerkleCheck(t *testing.T) {
+func TestSolidityMerkleCheck(t *testing.T) {
 	f, err := os.Open("testdata/udhr.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -40,52 +38,76 @@ func TestTxVMMerkleCheck(t *testing.T) {
 		chunks = append(chunks, buf[:n])
 	}
 
-	hasher := sha256.New()
-	for _, refchunk := range chunks {
-		tree := merkle.NewProofTree(hasher, refchunk)
-		for _, chunk := range chunks {
-			tree.Add(chunk)
-		}
-		root := tree.Root()
-		proof := tree.Proof()
-
-		prog := testMerkleCheckProg(proof, root, refchunk)
-
-		_, err := txvm.Validate(prog, 3, math.MaxInt64)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func testMerkleCheckProg(proof merkle.Proof, wantRoot, refchunk []byte) []byte {
-	b := new(txvmutil.Builder)
-	b.PushdataBytes(wantRoot)
-	b.Tuple(func(b *txvmutil.TupleBuilder) {
-		for i := len(proof) - 1; i >= 0; i-- {
-			b.PushdataBytes(proof[i].H)
-			var isLeft int64
-			if proof[i].Left {
-				isLeft = 1
-			}
-			b.PushdataInt64(isLeft)
-		}
-	})
-	b.PushdataBytes(refchunk)
-	b.PushdataBytes(merkleCheckProg).Op(op.Exec)
-	b.PushdataBytes([]byte{}).PushdataInt64(0).Op(op.Nonce)
-	b.Op(op.Finalize)
-
-	return b.Build()
-}
-
-func TestTxVMDecrypt(t *testing.T) {
-	var key [32]byte
-	_, err := hex.Decode(key[:], []byte(testKeyHex))
+	harness, err := testutil.NewHarness()
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	ctx := context.Background()
+	err = harness.Deploy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, refchunk := range chunks {
+		var (
+			chunkTree = merkle.NewProofTree(sha256.New(), Prefix(uint64(i), refchunk))
+			refhash   = sha256.Sum256(refchunk)
+			hashTree  = merkle.NewProofTree(sha256.New(), Prefix(uint64(i), refhash[:]))
+		)
+		for j, chunk := range chunks {
+			chunkTree.Add(Prefix(uint64(j), chunk))
+			hash := sha256.Sum256(chunk)
+			hashTree.Add(Prefix(uint64(j), hash[:]))
+		}
+
+		var chunkRoot [32]byte
+		copy(chunkRoot[:], chunkTree.Root())
+		chunkProof := chunkTree.Proof()
+
+		var hashRoot [32]byte
+		copy(hashRoot[:], hashTree.Root())
+		hashProof := hashTree.Proof()
+
+		callopts := new(bind.CallOpts)
+
+		ok, err := bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedChunk(contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot), treddABI.UnpackCheckProofWithPrefixedChunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Error("chunkTree proof validation failed")
+		}
+
+		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedHash(contract.Proof(hashProof), uint64(i), refhash, hashRoot), treddABI.UnpackCheckProofWithPrefixedHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Error("hashTree proof validation failed")
+		}
+
+		refchunk[0] ^= 1
+		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedChunk(contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot), treddABI.UnpackCheckProofWithPrefixedChunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Error("chunkTree proof validation succeeded unexpectedly")
+		}
+
+		refhash[0] ^= 1
+		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedHash(contract.Proof(hashProof), uint64(i), refhash, hashRoot), treddABI.UnpackCheckProofWithPrefixedHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Error("hashTree proof validation succeeded unexpectedly")
+		}
+	}
+}
+
+func TestDecrypt(t *testing.T) {
 	f, err := os.Open("testdata/udhr.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -101,26 +123,55 @@ func TestTxVMDecrypt(t *testing.T) {
 
 	copy(cipher[:], clear[:])
 
-	Crypt(key, cipher[:], 0)
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("encrypting did nothing?!")
 	}
 
-	src := fmt.Sprintf("x'%x' 0 x'%x'\n%s", key[:], cipher[:], decryptSrc)
-	prog, err := asm.Assemble(src)
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := txvm.Validate(prog, 3, math.MaxInt64)
-	if errors.Root(err) != txvm.ErrResidue {
-		t.Fatalf("expected ErrResidue, got %v", err)
+	if !bytes.Equal(cipher[:], clear[:]) {
+		t.Fatal("Crypt(Crypt(clear)) != clear ?!")
 	}
-	tuple := vm.StackItem(vm.StackLen() - 1).(txvm.Tuple)
-	if typecode := string(tuple[0].(txvm.Bytes)); typecode != "S" {
-		t.Fatalf("top of VM stack is item with type code %s, want S (for string)", typecode)
+
+	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	b := tuple[1].(txvm.Bytes)
-	if !bytes.Equal(b, clear[:]) {
-		t.Errorf("got %x, want %x", []byte(b), clear[:])
+
+	harness, err := testutil.NewHarness()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	err = harness.Deploy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txOpts := *harness.Seller
+	txOpts.Value = big.NewInt(2)
+	_, err = bind.Transact(harness.Contract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.Sim.Commit()
+
+	callopts := new(bind.CallOpts)
+
+	got, err := bind.Call(harness.Contract, callopts, treddABI.PackDecrypt(cipher[:], 0), treddABI.UnpackDecrypt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(got, clear[:]) {
+		t.Error("mismatch")
 	}
 }

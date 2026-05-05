@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bobg/merkle"
-	"github.com/chain/txvm/errors"
+	"github.com/bobg/errors"
 )
 
 // Decrypt decrypts the chunks in cipherChunks by xoring with hashes derived from key.
@@ -15,16 +14,11 @@ import (
 // Along the way, it compares each cleartext chunk's hash to the corresponding value in clearHashes.
 // If it finds a mismatch, it returns a BadClearHashError.
 func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) error {
-	var (
-		hasher       = sha256.New()
-		gotClearHash [32]byte
-	)
-
 	nhashes, err := clearHashes.Len()
 	if err != nil {
 		return errors.Wrap(err, "counting clear hashes")
 	}
-	for index := uint64(0); index < uint64(nhashes); index++ {
+	for index := range nhashes {
 		wantClearHash, err := clearHashes.Get(index)
 		if err != nil {
 			return errors.Wrapf(err, "getting clear hash %d", index)
@@ -36,7 +30,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 		}
 		Crypt(key, chunk, index)
 
-		merkle.LeafHash(hasher, gotClearHash[:0], chunk)
+		gotClearHash := sha256.Sum256(chunk)
 		if !bytes.Equal(gotClearHash[:], wantClearHash) {
 			return BadClearHashError{Index: index}
 		}

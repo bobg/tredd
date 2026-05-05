@@ -3,18 +3,20 @@ package tredd
 import (
 	"bytes"
 	"encoding/hex"
-	"fmt"
-	"io/ioutil"
+	"io"
+
 	"os"
 	"testing"
+
+	"github.com/bobg/tredd/testutil"
 )
 
 const testKeyHex = "17f9d2125c385c2b7626034a506e524b971d9487daeb688538101c4d7d6d1f2a"
 
 func TestServeGetDecrypt(t *testing.T) {
 	const (
-		clearRootHex      = "689b09a91f8a3a52fa83f076084878688242222b997a25c62e2ef03d58d50bfc"
-		wantCipherRootHex = "684d6d5652e44d45452d3c56ae5d229f701c67205a03d5c61de5a2a2134e5a0e"
+		clearRootHex      = "1e5e2ff1585e088ac737830c265e9346f30c951b33e81fe11141e161b77216ab"
+		wantCipherRootHex = "36f2a7918a9f710dbbaed6f53444ed780cf3fc070165734d9a46f13992ed74a1"
 	)
 
 	var key [32]byte
@@ -35,7 +37,7 @@ func TestServeGetDecrypt(t *testing.T) {
 	}
 	defer f.Close()
 
-	text, err := ioutil.ReadAll(f)
+	text, err := io.ReadAll(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +52,8 @@ func TestServeGetDecrypt(t *testing.T) {
 	}
 
 	var (
-		clearHashes  = new(testChunkStore)
-		cipherChunks = new(testChunkStore)
+		clearHashes  = new(testutil.ChunkStore)
+		cipherChunks = new(testutil.ChunkStore)
 	)
 
 	cipherRoot, err = Get(served, clearRoot, clearHashes, cipherChunks)
@@ -70,28 +72,6 @@ func TestServeGetDecrypt(t *testing.T) {
 	if !bytes.Equal(decrypted.Bytes(), text) {
 		t.Error("text mismatch")
 	}
-}
-
-type testChunkStore struct {
-	chunks [][]byte
-}
-
-func (t *testChunkStore) Add(chunk []byte) error {
-	dup := make([]byte, len(chunk))
-	copy(dup, chunk)
-	t.chunks = append(t.chunks, dup)
-	return nil
-}
-
-func (t *testChunkStore) Get(index uint64) ([]byte, error) {
-	if index >= uint64(len(t.chunks)) {
-		return nil, fmt.Errorf("index %d >= len %d", index, len(t.chunks))
-	}
-	return t.chunks[index], nil
-}
-
-func (t *testChunkStore) Len() (int64, error) {
-	return int64(len(t.chunks)), nil
 }
 
 func BenchmarkCrypt(b *testing.B) {
