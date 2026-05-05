@@ -110,9 +110,8 @@ func RevealKey(
 	wantClearRoot, wantCipherRoot [32]byte,
 ) (*bind.BoundContract, *types.Receipt, error) {
 	con := treddABI.Instance(client, contractAddr)
-	callOpts := &bind.CallOpts{Context: ctx}
 
-	gotTokenType, err := bind.Call(con, callOpts, treddABI.PackMTokenType(), treddABI.UnpackMTokenType)
+	gotTokenType, err := contract.TokenType(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mTokenType")
 	}
@@ -120,7 +119,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got token type %s, want %s", gotTokenType.Hex(), wantTokenType.Hex())
 	}
 
-	gotAmount, err := bind.Call(con, callOpts, treddABI.PackMAmount(), treddABI.UnpackMAmount)
+	gotAmount, err := contract.Amount(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mAmount")
 	}
@@ -128,7 +127,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got amount %s, want %s", gotAmount, wantAmount)
 	}
 
-	gotCollateral, err := bind.Call(con, callOpts, treddABI.PackMCollateral(), treddABI.UnpackMCollateral)
+	gotCollateral, err := contract.Collateral(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mCollateral")
 	}
@@ -136,7 +135,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got collateral %s, want %s", gotCollateral, wantCollateral)
 	}
 
-	gotClearRoot, err := bind.Call(con, callOpts, treddABI.PackMClearRoot(), treddABI.UnpackMClearRoot)
+	gotClearRoot, err := contract.ClearRoot(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mClearRoot")
 	}
@@ -144,7 +143,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got clear root %x, want %x", gotClearRoot[:], wantClearRoot[:])
 	}
 
-	gotCipherRoot, err := bind.Call(con, callOpts, treddABI.PackMCipherRoot(), treddABI.UnpackMCipherRoot)
+	gotCipherRoot, err := contract.CipherRoot(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mCipherRoot")
 	}
@@ -152,12 +151,8 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got cipher root %x, want %x", gotCipherRoot[:], wantCipherRoot[:])
 	}
 
-	gotRevealDeadlineSecs, err := bind.Call(con, callOpts, treddABI.PackMRevealDeadline(), treddABI.UnpackMRevealDeadline)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
-	}
-	gotRevealDeadline := time.Unix(int64(gotRevealDeadlineSecs), 0)
-	if int64(gotRevealDeadlineSecs) != wantRevealDeadline.Unix() { // lop off fractional seconds from wantRevealDeadline
+	gotRevealDeadline, err := contract.RevealDeadline(ctx, con)
+	if gotRevealDeadline.Unix() != wantRevealDeadline.Unix() { // lop off fractional seconds
 		return nil, nil, fmt.Errorf("reveal deadline is %s, want %s", gotRevealDeadline, wantRevealDeadline)
 	}
 
@@ -165,15 +160,15 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("reveal deadline of %s is too soon, or in the past", gotRevealDeadline)
 	}
 
-	gotRefundDeadlineSecs, err := bind.Call(con, callOpts, treddABI.PackMRefundDeadline(), treddABI.UnpackMRefundDeadline)
+	gotRefundDeadline, err := contract.RefundDeadline(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
-	if int64(gotRefundDeadlineSecs) != wantRefundDeadline.Unix() { // lop off fractional seconds from wantRefundDeadline
-		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", time.Unix(int64(gotRefundDeadlineSecs), 0), wantRefundDeadline)
+	if gotRefundDeadline.Unix() != wantRefundDeadline.Unix() { // lop off fractional seconds from wantRefundDeadline
+		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", gotRefundDeadline, wantRefundDeadline)
 	}
 
-	paidAmount, err := bind.Call(con, callOpts, treddABI.PackPaid(), treddABI.UnpackPaid)
+	paidAmount, err := contract.Paid(ctx, con)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "checking paid amount")
 	}
