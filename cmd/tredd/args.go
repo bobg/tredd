@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 )
 
 // These functions are duplicated from github.com/bobg/ninex.
