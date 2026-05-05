@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bobg/errors"
+	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -58,4 +59,25 @@ func RefundDeadline(ctx context.Context, con *bind.BoundContract) (time.Time, er
 func Paid(ctx context.Context, con *bind.BoundContract) (*big.Int, error) {
 	callOpts := &bind.CallOpts{Context: ctx}
 	return bind.Call(con, callOpts, treddABI.PackPaid(), treddABI.UnpackPaid)
+}
+
+func CheckProofWithPrefixedChunk(ctx context.Context, con *bind.BoundContract, chunkProof merkle.Proof, idx uint64, refChunk []byte, chunkRoot [32]byte) (bool, error) {
+	var (
+		callOpts = &bind.CallOpts{Context: ctx}
+		callData = treddABI.PackCheckProofWithPrefixedChunk(Proof(chunkProof), idx, refChunk, chunkRoot)
+	)
+	return bind.Call(con, callOpts, callData, treddABI.UnpackCheckProofWithPrefixedChunk)
+}
+
+func CheckProofWithPrefixedHash(ctx context.Context, con *bind.BoundContract, hashProof merkle.Proof, idx uint64, refHash [32]byte, hashRoot [32]byte) (bool, error) {
+	var (
+		callOpts = &bind.CallOpts{Context: ctx}
+		callData = treddABI.PackCheckProofWithPrefixedHash(Proof(hashProof), idx, refHash, hashRoot)
+	)
+	return bind.Call(con, callOpts, callData, treddABI.UnpackCheckProofWithPrefixedHash)
+}
+
+func Decrypt(con *bind.BoundContract, cipher []byte) ([]byte, error) {
+	callOpts := &bind.CallOpts{}
+	return bind.Call(con, callOpts, treddABI.PackDecrypt(cipher, 0), treddABI.UnpackDecrypt)
 }

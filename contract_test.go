@@ -69,9 +69,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		copy(hashRoot[:], hashTree.Root())
 		hashProof := hashTree.Proof()
 
-		callopts := new(bind.CallOpts)
-
-		ok, err := bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedChunk(contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot), treddABI.UnpackCheckProofWithPrefixedChunk)
+		ok, err := contract.CheckProofWithPrefixedChunk(ctx, harness.Contract, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +77,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 			t.Error("chunkTree proof validation failed")
 		}
 
-		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedHash(contract.Proof(hashProof), uint64(i), refhash, hashRoot), treddABI.UnpackCheckProofWithPrefixedHash)
+		ok, err = contract.CheckProofWithPrefixedHash(ctx, harness.Contract, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +86,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refchunk[0] ^= 1
-		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedChunk(contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot), treddABI.UnpackCheckProofWithPrefixedChunk)
+		ok, err = contract.CheckProofWithPrefixedChunk(ctx, harness.Contract, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +95,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refhash[0] ^= 1
-		ok, err = bind.Call(harness.Contract, callopts, treddABI.PackCheckProofWithPrefixedHash(contract.Proof(hashProof), uint64(i), refhash, hashRoot), treddABI.UnpackCheckProofWithPrefixedHash)
+		ok, err = contract.CheckProofWithPrefixedHash(ctx, harness.Contract, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,9 +162,7 @@ func TestDecrypt(t *testing.T) {
 	}
 	harness.Sim.Commit()
 
-	callopts := new(bind.CallOpts)
-
-	got, err := bind.Call(harness.Contract, callopts, treddABI.PackDecrypt(cipher[:], 0), treddABI.UnpackDecrypt)
+	got, err := contract.Decrypt(harness.Contract, cipher[:])
 	if err != nil {
 		t.Fatal(err)
 	}
