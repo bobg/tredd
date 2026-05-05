@@ -39,6 +39,7 @@ tasks:
     desc: Compile contract/tredd.sol and generate Go bindings (downloads solc automatically)
     cmds:
       - go run ./contract/generate
+    run: once
     sources:
       - contract/tredd.sol
     generates:

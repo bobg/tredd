@@ -11,7 +11,6 @@ import (
 
 var (
 	errBadClearRoot = errors.New("bad clear merkle root hash")
-	errBadPrefix    = errors.New("bad chunk prefix")
 	errPartial      = errors.New("partial non-final chunk")
 )
 

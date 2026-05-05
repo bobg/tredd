@@ -16,8 +16,6 @@ import (
 	"github.com/bobg/tredd/testutil"
 )
 
-var zeroes [32]byte
-
 func TestSolidityMerkleCheck(t *testing.T) {
 	f, err := os.Open("testdata/udhr.txt")
 	if err != nil {

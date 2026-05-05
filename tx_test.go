@@ -76,7 +76,7 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 
 	ctx := context.Background()
 
-	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
+	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
 		t.Fatal(err)
 	}

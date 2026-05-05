@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"log"
 	"math/big"
 	"net/http"
 	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,77 +22,62 @@ import (
 	"github.com/bobg/tredd/contract"
 )
 
-func get(args []string) {
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	fs := flag.NewFlagSet("", flag.PanicOnError)
-
+func get(ctx context.Context,
+	clearRootHex string,
+	tokenTypeStr string,
+	amountStr string,
+	collateralStr string,
+	revealDeadlineDur time.Duration,
+	refundDeadlineDur time.Duration,
+	serverURL string,
+	ethURL string,
+	dir string,
+	sellerHex string,
+	keyfile string,
+	passphrase string,
+	_ []string,
+) error {
 	var (
-		clearRootHex      = fs.String("hash", "", "clear-chunk Merkle root hash of requested file")
-		tokenTypeStr      = fs.String("token", "", "token type (ERC20 hex address) of proposed payment, or omit for ETH")
-		amountStr         = fs.String("amount", "1", "amount of proposed payment")
-		collateralStr     = fs.String("collateral", "1", "amount of proposed collateral")
-		revealDeadlineDur = fs.Duration("reveal", 15*time.Minute, "time until reveal deadline, in time.ParseDuration format")
-		refundDeadlineDur = fs.Duration("refund", 30*time.Minute, "time from reveal deadline until refund deadline, in time.ParseDuration format")
-		serverURL         = fs.String("server", "", "base URL of tredd server")
-		ethURL            = fs.String("ethurl", "", "base URL of Ethereum server")
-		dir               = fs.String("dir", "", "root dir for file transfers")
-		sellerHex         = fs.String("seller", "", "seller address (hex)")
-	)
-
-	keyfile, passphrase := addKeyfilePassphrase(fs)
-
-	err := fs.Parse(args)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var (
-		requestURL     = *serverURL + "/request"
-		proposeURL     = *serverURL + "/propose-payment"
-		revealDeadline = time.Now().Add(*revealDeadlineDur)
-		refundDeadline = revealDeadline.Add(*refundDeadlineDur)
+		requestURL     = serverURL + "/request"
+		proposeURL     = serverURL + "/propose-payment"
+		revealDeadline = time.Now().Add(revealDeadlineDur)
+		refundDeadline = revealDeadline.Add(refundDeadlineDur)
 	)
 
 	var clearRoot [32]byte
-	_, err = hex.Decode(clearRoot[:], []byte(*clearRootHex))
-	if err != nil {
-		log.Fatal(err)
+	if _, err := hex.Decode(clearRoot[:], []byte(clearRootHex)); err != nil {
+		return errors.Wrap(err, "decoding clear root hex")
 	}
 
-	buyer, err := handleKeyfilePassphrase(*keyfile, *passphrase)
+	buyer, err := handleKeyfilePassphrase(keyfile, passphrase)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "handling keyfile and passphrase")
 	}
 
 	var (
 		amount     = new(big.Int)
 		collateral = new(big.Int)
 	)
-	_, ok := amount.SetString(*amountStr, 10)
-	if !ok {
-		log.Fatalf(`Error parsing amount string "%s"`, *amountStr)
+	if _, ok := amount.SetString(amountStr, 10); !ok {
+		return fmt.Errorf("error parsing amount string %q", amountStr)
 	}
-	_, ok = collateral.SetString(*collateralStr, 10)
-	if !ok {
-		log.Fatalf(`Error parsing collateralStr string "%s"`, *collateralStr)
+	if _, ok := collateral.SetString(collateralStr, 10); !ok {
+		return fmt.Errorf("error parsing collateralStr string %q", collateralStr)
 	}
 
-	client, err := ethclient.Dial(*ethURL)
+	client, err := ethclient.Dial(ethURL)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrapf(err, "dialing Ethereum service at %s", ethURL)
 	}
 
 	var tokenType common.Address
-	if *tokenTypeStr != "" {
-		tokenType = common.HexToAddress(*tokenTypeStr)
+	if tokenTypeStr != "" {
+		tokenType = common.HexToAddress(tokenTypeStr)
 	}
 
 	vals := url.Values{}
 	vals.Add("buyer", buyer.From.Hex())
-	vals.Add("clearroot", *clearRootHex)
+	vals.Add("clearroot", clearRootHex)
 	vals.Add("amount", amount.String())
 	vals.Add("collateral", collateral.String())
 	vals.Add("revealdeadline", strconv.FormatInt(revealDeadline.Unix(), 10))
@@ -115,8 +99,8 @@ func get(args []string) {
 
 	var (
 		transferID       = resp.Header.Get("X-Tredd-Transfer-Id")
-		clearHashesFile  = path.Join(*dir, fmt.Sprintf("hashes-%s", transferID))
-		cipherChunksFile = path.Join(*dir, fmt.Sprintf("chunks-%s", transferID))
+		clearHashesFile  = filepath.Join(dir, fmt.Sprintf("hashes-%s", transferID))
+		cipherChunksFile = filepath.Join(dir, fmt.Sprintf("chunks-%s", transferID))
 	)
 
 	clearHashes, err := newFileChunkStore(clearHashesFile, 32)
@@ -143,7 +127,7 @@ func get(args []string) {
 	log.Print("proposing payment")
 
 	var seller common.Address
-	_, err = hex.Decode(seller[:], []byte(*sellerHex))
+	_, err = hex.Decode(seller[:], []byte(sellerHex))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -179,23 +163,22 @@ func get(args []string) {
 	// in which case we decrypt and validate the content.
 	select {
 	case <-ctx.Done():
-		log.Print("context canceled, exiting")
-		return
+		return context.Cause(ctx)
 
 	case <-revealTimer.C:
 		receipt, err := tredd.Cancel(ctx, client, buyer, con)
 		if err != nil {
-			log.Fatal(err)
+			return errors.Wrap(err, "canceling contract after reveal deadline")
 		}
 		log.Printf("Reclaimed payment in transaction %x", receipt.TxHash[:])
-		return
+		return nil
 
 	case ev := <-evChan:
 		// Decryption key revealed.
-		outFileName := path.Join(*dir, hex.EncodeToString(clearRoot[:]))
+		outFileName := filepath.Join(dir, hex.EncodeToString(clearRoot[:]))
 		out, err := os.Create(outFileName)
 		if err != nil {
-			log.Fatalf("creating %s: %s", outFileName, err) // TODO: more graceful/recoverable handling
+			return errors.Wrapf(err, "creating output file %s", outFileName) // TODO: more graceful/recoverable handling
 		}
 		defer out.Close()
 
@@ -208,23 +191,24 @@ func get(args []string) {
 
 			refClearHash, refCipherChunk, clearProof, cipherProof, err := tredd.PrepareForRefund(bchErr.Index, clearHashes, cipherChunks)
 			if err != nil {
-				log.Fatalf("preparing for refund: %s", err)
+				return errors.Wrap(err, "preparing for refund")
 			}
 
 			receipt, err := tredd.ClaimRefund(ctx, client, buyer, con, bchErr.Index, refCipherChunk, refClearHash, cipherProof, clearProof)
 			if err != nil {
-				log.Fatalf("Error constructing refund-claiming transaction: %s", err)
+				return errors.Wrap(err, "claiming refund after decryption failure")
 			}
 
 			log.Printf("Refund claimed in transaction %x", receipt.TxHash[:])
-			return
+			return nil
 
 		} else if err != nil {
 			log.Fatalf("Error decrypting content: %s", err)
 		}
 		log.Printf("Complete, decrypted content is in %s", outFileName)
+		return nil
 
 	case err := <-subErrChan:
-		log.Fatalf("Error waiting for decryption-key event: %s", err)
+		return errors.Wrap(err, "watching for decryption key event")
 	}
 }

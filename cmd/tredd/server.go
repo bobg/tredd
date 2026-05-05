@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -29,44 +28,35 @@ import (
 	"github.com/bobg/tredd"
 )
 
-func serve(args []string) {
-	ctx := context.Background()
-
-	fs := flag.NewFlagSet("", flag.PanicOnError)
-
-	var (
-		addr   = fs.String("addr", "localhost:20544", "server listen address")
-		dir    = fs.String("dir", ".", "root of content tree")
-		dbFile = fs.String("db", "", "file containing server-state db")
-		ethURL = fs.String("ethurl", "", "URL of blockchain server")
-	)
-
-	keyfile, passphrase := addKeyfilePassphrase(fs)
-
-	err := fs.Parse(args)
+func serve(
+	ctx context.Context, _ []string,
+	addr string,
+	dir string,
+	dbFile string,
+	ethURL string,
+	keyfile string,
+	passphrase string,
+	_ []string,
+) error {
+	db, err := openDB(ctx, dbFile)
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	db, err := openDB(ctx, *dbFile)
-	if err != nil {
-		log.Fatal(err)
+		return errors.Wrapf(err, "opening db file %s", dbFile)
 	}
 	defer db.Close()
 
-	seller, err := handleKeyfilePassphrase(*keyfile, *passphrase)
+	seller, err := handleKeyfilePassphrase(keyfile, passphrase)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "handling keyfile and passphrase")
 	}
 
-	client, err := ethclient.Dial(*ethURL)
+	client, err := ethclient.Dial(ethURL)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrapf(err, "dialing Ethereum service at %s", ethURL)
 	}
 
 	s := &server{
 		db:     db,
-		dir:    *dir,
+		dir:    dir,
 		seller: seller,
 		client: client,
 	}
@@ -74,25 +64,34 @@ func serve(args []string) {
 	rows, errptr := seqs.SQL[[]byte](ctx, db, "SELECT transfer_id FROM transfer_records")
 	for transferID := range rows {
 		log.Printf("queueing claim-payment callback for transfer %x", transferID)
-		err = s.queueClaimPayment(ctx, transferID)
-		if err != nil {
-			log.Fatal(err)
+		if err := s.queueClaimPayment(ctx, transferID); err != nil {
+			return errors.Wrapf(err, "queueing claim-payment callback for transfer ID %x", transferID)
 		}
 	}
 	if err := *errptr; err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "getting transfer records")
 	}
 
-	listener, err := net.Listen("tcp", *addr)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrapf(err, "listening on %s", addr)
 	}
 
 	log.Printf("listening on %s", listener.Addr())
 
-	http.Handle("/request", mid.Err(s.serve))
-	http.Handle("/propose-payment", mid.Err(s.revealKey))
-	http.Serve(listener, nil)
+	mux := http.NewServeMux()
+	mux.Handle("/request", mid.Err(s.serve))
+	mux.Handle("/propose-payment", mid.Err(s.revealKey))
+
+	h := http.Server{
+		Handler: mux,
+	}
+
+	err = h.Serve(listener)
+	if errors.Is(err, http.ErrServerClosed) {
+		err = nil
+	}
+	return errors.Wrap(err, "serving requests")
 }
 
 type server struct {
