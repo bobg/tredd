@@ -22,7 +22,8 @@ import (
 	"github.com/bobg/tredd/contract"
 )
 
-func get(ctx context.Context,
+func get(
+	ctx context.Context,
 	clearRootHex string,
 	tokenTypeStr string,
 	amountStr string,

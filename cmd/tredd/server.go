@@ -29,7 +29,7 @@ import (
 )
 
 func serve(
-	ctx context.Context, _ []string,
+	ctx context.Context,
 	addr string,
 	dir string,
 	dbFile string,
