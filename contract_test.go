@@ -2,7 +2,6 @@ package tredd
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"io"
 	"math/big"
@@ -38,14 +37,14 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		chunks = append(chunks, buf[:n])
 	}
 
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-	err = harness.Deploy(ctx)
-	if err != nil {
+	if err := harness.Deploy(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,12 +141,12 @@ func TestDecrypt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	err = harness.Deploy(ctx)
 	if err != nil {

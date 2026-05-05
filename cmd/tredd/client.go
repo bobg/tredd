@@ -73,7 +73,7 @@ func get(
 		return errors.Wrap(err, "getting chain ID")
 	}
 
-	buyer, err := handleKeyfilePassphrase(keyfile, passphrase, chainID)
+	buyer, err := handleKeyfilePassphrase(ctx, keyfile, passphrase, chainID)
 	if err != nil {
 		return errors.Wrap(err, "handling keyfile and passphrase")
 	}

@@ -1,7 +1,6 @@
 package tredd
 
 import (
-	"context"
 	"crypto/sha256"
 	"io"
 	"math/big"
@@ -22,12 +21,12 @@ var (
 )
 
 func TestProposeCancel(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -69,12 +68,12 @@ func TestProposeCancel(t *testing.T) {
 }
 
 func TestProposeRevealCancel(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -109,12 +108,12 @@ func TestProposeRevealCancel(t *testing.T) {
 }
 
 func TestProposeRevealRefundOK(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -163,12 +162,12 @@ func TestProposeRevealRefundOK(t *testing.T) {
 }
 
 func TestProposeRevealRefundFail(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -207,12 +206,12 @@ func TestProposeRevealRefundFail(t *testing.T) {
 }
 
 func TestProposeRevealRefundFraud(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -253,12 +252,12 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 }
 
 func TestProposeRevealClaimPayment(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {

@@ -80,7 +80,7 @@ type testClient struct {
 	simulated.Client
 }
 
-func NewHarness() (*Harness, error) {
+func NewHarness(ctx context.Context) (*Harness, error) {
 	var curve secp256k1.BitCurve
 	err := json.Unmarshal([]byte(secp256k1JSON), &curve)
 	if err != nil {
@@ -95,6 +95,7 @@ func NewHarness() (*Harness, error) {
 	}
 	buyerKey.Curve = &curve
 	buyer := bind.NewKeyedTransactor(&buyerKey, big.NewInt(1337))
+	buyer.Context = ctx
 	buyer.GasPrice = big.NewInt(1)
 
 	err = json.Unmarshal([]byte(sellerKeyJSON), &sellerKey)
@@ -103,6 +104,7 @@ func NewHarness() (*Harness, error) {
 	}
 	sellerKey.Curve = &curve
 	seller := bind.NewKeyedTransactor(&sellerKey, big.NewInt(1337))
+	seller.Context = ctx
 	seller.GasPrice = big.NewInt(1)
 
 	alloc := core.GenesisAlloc{
