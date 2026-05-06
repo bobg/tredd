@@ -152,6 +152,9 @@ func RevealKey(
 	}
 
 	gotRevealDeadline, err := contract.RevealDeadline(ctx, con)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
+	}
 	if gotRevealDeadline.Unix() != wantRevealDeadline.Unix() { // lop off fractional seconds
 		return nil, nil, fmt.Errorf("reveal deadline is %s, want %s", gotRevealDeadline, wantRevealDeadline)
 	}

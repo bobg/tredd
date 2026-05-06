@@ -12,7 +12,6 @@ import (
 	"github.com/bobg/errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
@@ -107,9 +106,9 @@ func NewHarness(ctx context.Context) (*Harness, error) {
 	seller.Context = ctx
 	seller.GasPrice = big.NewInt(1)
 
-	alloc := core.GenesisAlloc{
-		buyer.From:  core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
-		seller.From: core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
+	alloc := types.GenesisAlloc{
+		buyer.From:  types.Account{Balance: big.NewInt(StartingBalance)},
+		seller.From: types.Account{Balance: big.NewInt(StartingBalance)},
 	}
 
 	// Use simulated.NewBackend directly so we can set the genesis base fee to
