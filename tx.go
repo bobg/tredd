@@ -109,9 +109,9 @@ func RevealKey(
 	wantRevealDeadline, wantRefundDeadline time.Time,
 	wantClearRoot, wantCipherRoot [32]byte,
 ) (*bind.BoundContract, *types.Receipt, error) {
-	con := treddABI.Instance(client, contractAddr)
+	con := contract.NewInstance(client, contractAddr)
 
-	gotTokenType, err := contract.TokenType(ctx, con)
+	gotTokenType, err := con.TokenType(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mTokenType")
 	}
@@ -119,7 +119,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got token type %s, want %s", gotTokenType.Hex(), wantTokenType.Hex())
 	}
 
-	gotAmount, err := contract.Amount(ctx, con)
+	gotAmount, err := con.Amount(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mAmount")
 	}
@@ -127,7 +127,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got amount %s, want %s", gotAmount, wantAmount)
 	}
 
-	gotCollateral, err := contract.Collateral(ctx, con)
+	gotCollateral, err := con.Collateral(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mCollateral")
 	}
@@ -135,7 +135,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got collateral %s, want %s", gotCollateral, wantCollateral)
 	}
 
-	gotClearRoot, err := contract.ClearRoot(ctx, con)
+	gotClearRoot, err := con.ClearRoot(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mClearRoot")
 	}
@@ -143,7 +143,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got clear root %x, want %x", gotClearRoot[:], wantClearRoot[:])
 	}
 
-	gotCipherRoot, err := contract.CipherRoot(ctx, con)
+	gotCipherRoot, err := con.CipherRoot(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mCipherRoot")
 	}
@@ -151,7 +151,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("got cipher root %x, want %x", gotCipherRoot[:], wantCipherRoot[:])
 	}
 
-	gotRevealDeadline, err := contract.RevealDeadline(ctx, con)
+	gotRevealDeadline, err := con.RevealDeadline(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRevealDeadline")
 	}
@@ -163,7 +163,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("reveal deadline of %s is too soon, or in the past", gotRevealDeadline)
 	}
 
-	gotRefundDeadline, err := contract.RefundDeadline(ctx, con)
+	gotRefundDeadline, err := con.RefundDeadline(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "getting mRefundDeadline")
 	}
@@ -171,7 +171,7 @@ func RevealKey(
 		return nil, nil, fmt.Errorf("refund deadline is %s, want %s", gotRefundDeadline, wantRefundDeadline)
 	}
 
-	paidAmount, err := contract.Paid(ctx, con)
+	paidAmount, err := con.Paid(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "checking paid amount")
 	}
@@ -181,8 +181,7 @@ func RevealKey(
 
 	if !IsETH(wantTokenType) {
 		tokenInstance := erc20ABI.Instance(client, wantTokenType)
-		_, err = bind.Transact(tokenInstance, seller, erc20ABI.PackApprove(contractAddr, wantCollateral))
-		if err != nil {
+		if _, err := bind.Transact(tokenInstance, seller, erc20ABI.PackApprove(contractAddr, wantCollateral)); err != nil {
 			return nil, nil, errors.Wrap(err, "approving token transfer")
 		}
 		// TODO: Does the approve transaction have to be mined before the reveal transaction will work?
@@ -195,13 +194,13 @@ func RevealKey(
 		revealTxOpts = &seller
 	}
 
-	revealTx, err := bind.Transact(con, revealTxOpts, treddABI.PackReveal(key))
+	revealTx, err := bind.Transact(con.BoundContract, revealTxOpts, treddABI.PackReveal(key))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "invoking ClaimPayment")
 	}
 
 	receipt, err := waitMined(ctx, client, revealTx)
-	return con, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
+	return con.BoundContract, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
 }
 
 // ClaimPayment constructs a seller-claims-payment transaction,

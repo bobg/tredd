@@ -11,7 +11,6 @@ import (
 	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 
-	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
 
@@ -68,7 +67,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		copy(hashRoot[:], hashTree.Root())
 		hashProof := hashTree.Proof()
 
-		ok, err := contract.CheckProofWithPrefixedChunk(ctx, harness.Contract, chunkProof, uint64(i), refchunk, chunkRoot)
+		ok, err := harness.Contract.CheckProofWithPrefixedChunk(ctx, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +75,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 			t.Error("chunkTree proof validation failed")
 		}
 
-		ok, err = contract.CheckProofWithPrefixedHash(ctx, harness.Contract, hashProof, uint64(i), refhash, hashRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(ctx, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +84,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refchunk[0] ^= 1
-		ok, err = contract.CheckProofWithPrefixedChunk(ctx, harness.Contract, chunkProof, uint64(i), refchunk, chunkRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedChunk(ctx, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +93,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refhash[0] ^= 1
-		ok, err = contract.CheckProofWithPrefixedHash(ctx, harness.Contract, hashProof, uint64(i), refhash, hashRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(ctx, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,13 +154,13 @@ func TestDecrypt(t *testing.T) {
 
 	txOpts := *harness.Seller
 	txOpts.Value = big.NewInt(2)
-	_, err = bind.Transact(harness.Contract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey))
+	_, err = bind.Transact(harness.Contract.BoundContract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey))
 	if err != nil {
 		t.Fatal(err)
 	}
 	harness.Sim.Commit()
 
-	got, err := contract.Decrypt(harness.Contract, cipher[:])
+	got, err := harness.Contract.Decrypt(cipher[:])
 	if err != nil {
 		t.Fatal(err)
 	}

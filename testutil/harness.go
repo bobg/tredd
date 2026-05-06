@@ -67,7 +67,7 @@ type Harness struct {
 	Client                         *testClient
 	RevealDeadline, RefundDeadline time.Time
 	ContractAddr                   common.Address // only set after Harness.Deploy is called
-	Contract                       *bind.BoundContract
+	Contract                       contract.Instance
 	BuyerBalance, SellerBalance    uint64 // caller updates these then calls CheckBalances
 }
 
@@ -162,7 +162,7 @@ func (h *Harness) Deploy(ctx context.Context) error {
 	// Transfer the buyer payment to the contract (ETH path: send ETH to contract).
 	txOpts := *h.Buyer
 	txOpts.Value = big3
-	instance := treddABI.Instance(h.Client, addr)
+	instance := contract.NewInstance(h.Client, addr)
 	transferTx, err := instance.Transfer(&txOpts)
 	if err != nil {
 		return errors.Wrap(err, "transferring buyer payment to contract")
