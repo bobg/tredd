@@ -165,7 +165,7 @@ func decrypt(_ context.Context, keyHex string, _ []string) error {
 			break
 		}
 		if err != nil && err != io.ErrUnexpectedEOF {
-			log.Fatal(err)
+			return errors.Wrap(err, "reading cipher chunk")
 		}
 		tredd.Crypt(key, buf[:n], index)
 		os.Stdout.Write(buf[:n])
