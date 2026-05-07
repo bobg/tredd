@@ -45,18 +45,13 @@ const (
 )
 
 func init() {
-	_, err := hex.Decode(DecryptionKey[:], []byte(decryptionKeyHex))
-	if err != nil {
+	if _, err := hex.Decode(DecryptionKey[:], []byte(decryptionKeyHex)); err != nil {
 		panic(err)
 	}
-
-	_, err = hex.Decode(ClearRoot[:], []byte(udhrClearRootHex))
-	if err != nil {
+	if _, err := hex.Decode(ClearRoot[:], []byte(udhrClearRootHex)); err != nil {
 		panic(err)
 	}
-
-	_, err = hex.Decode(CipherRoot[:], []byte(udhrCipherRootHex))
-	if err != nil {
+	if _, err := hex.Decode(CipherRoot[:], []byte(udhrCipherRootHex)); err != nil {
 		panic(err)
 	}
 }
@@ -81,15 +76,13 @@ type testClient struct {
 
 func NewHarness(ctx context.Context) (*Harness, error) {
 	var curve secp256k1.BitCurve
-	err := json.Unmarshal([]byte(secp256k1JSON), &curve)
-	if err != nil {
+	if err := json.Unmarshal([]byte(secp256k1JSON), &curve); err != nil {
 		return nil, err
 	}
 
 	var buyerKey, sellerKey ecdsa.PrivateKey
 
-	err = json.Unmarshal([]byte(buyerKeyJSON), &buyerKey)
-	if err != nil {
+	if err := json.Unmarshal([]byte(buyerKeyJSON), &buyerKey); err != nil {
 		return nil, err
 	}
 	buyerKey.Curve = &curve
@@ -97,8 +90,7 @@ func NewHarness(ctx context.Context) (*Harness, error) {
 	buyer.Context = ctx
 	buyer.GasPrice = big.NewInt(1)
 
-	err = json.Unmarshal([]byte(sellerKeyJSON), &sellerKey)
-	if err != nil {
+	if err := json.Unmarshal([]byte(sellerKeyJSON), &sellerKey); err != nil {
 		return nil, err
 	}
 	sellerKey.Curve = &curve
@@ -154,8 +146,7 @@ func (h *Harness) Deploy(ctx context.Context) error {
 	h.Sim.Commit()
 
 	// Wait for deployment to be mined.
-	_, err = bind.WaitMined(ctx, h.Client, deployTx.Hash())
-	if err != nil {
+	if _, err := bind.WaitMined(ctx, h.Client, deployTx.Hash()); err != nil {
 		return errors.Wrap(err, "waiting for contract deployment")
 	}
 
@@ -169,8 +160,7 @@ func (h *Harness) Deploy(ctx context.Context) error {
 	}
 	h.Sim.Commit()
 
-	_, err = bind.WaitMined(ctx, h.Client, transferTx.Hash())
-	if err != nil {
+	if _, err := bind.WaitMined(ctx, h.Client, transferTx.Hash()); err != nil {
 		return errors.Wrap(err, "waiting for payment transfer")
 	}
 

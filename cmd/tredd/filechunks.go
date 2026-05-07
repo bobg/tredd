@@ -33,8 +33,8 @@ func (s *fileChunkStore) Add(bits []byte) error {
 		return err
 	}
 	defer f.Close()
-	_, err = f.Write(bits)
-	if err != nil {
+
+	if _, err := f.Write(bits); err != nil {
 		return err
 	}
 	s.size += uint64(len(bits))
@@ -48,8 +48,7 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	}
 	defer f.Close()
 
-	_, err = f.Seek(int64(index*s.chunksize), io.SeekStart) // TODO: range check
-	if err != nil {
+	if _, err := f.Seek(int64(index*s.chunksize), io.SeekStart); err != nil { // TODO: range check
 		return nil, err
 	}
 

@@ -139,8 +139,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	buyer := common.HexToAddress(buyerHex)
 
 	var clearRoot [32]byte
-	_, err := hex.Decode(clearRoot[:], []byte(clearRootHex))
-	if err != nil {
+	if _, err := hex.Decode(clearRoot[:], []byte(clearRootHex)); err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding clear root")}
 	}
 
@@ -176,8 +175,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return fmt.Errorf("got collateral = %s, should be 1 or greater", collateral)
 	}
 
-	err = s.checkPrice(tokenType, amount, collateral, clearRoot)
-	if err != nil {
+	if err := s.checkPrice(tokenType, amount, collateral, clearRoot); err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "proposed payment rejected")}
 	}
 
@@ -205,12 +203,10 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 
 	var key, transferID [32]byte
 
-	_, err = rand.Read(transferID[:])
-	if err != nil {
+	if _, err := rand.Read(transferID[:]); err != nil {
 		return errors.Wrap(err, "choosing transfer ID")
 	}
-	_, err = rand.Read(key[:])
-	if err != nil {
+	if _, err := rand.Read(key[:]); err != nil {
 		return errors.Wrap(err, "choosing cipher key")
 	}
 
@@ -234,8 +230,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	var cipherRootBuf [32]byte
 	copy(cipherRootBuf[:], cipherRoot)
 
-	err = tmpfile.Close()
-	if err != nil {
+	if err := tmpfile.Close(); err != nil {
 		return errors.Wrap(err, "closing response tempfile")
 	}
 
@@ -252,8 +247,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		cipherRoot:     cipherRootBuf,
 	}
 
-	err = s.storeRecord(req.Context(), rec)
-	if err != nil {
+	if err := s.storeRecord(req.Context(), rec); err != nil {
 		return errors.Wrap(err, "storing transfer record")
 	}
 
@@ -262,12 +256,9 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "reopening response tempfile")
 	}
 	defer tmpfile.Close()
-	_, err = io.Copy(w, tmpfile)
-	if err != nil {
-		return errors.Wrap(err, "writing response")
-	}
 
-	return nil
+	_, err = io.Copy(w, tmpfile)
+	return errors.Wrap(err, "writing response")
 }
 
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
@@ -289,8 +280,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "finding transfer record")
 	}
 	rec.contractAddr = &contractAddr
-	err = s.storeRecord(ctx, rec)
-	if err != nil {
+	if err := s.storeRecord(ctx, rec); err != nil {
 		return errors.Wrap(err, "updating transfer record")
 	}
 
@@ -332,8 +322,7 @@ func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecor
 		revealDeadlineSecs, refundDeadlineSecs int64
 		amount, collateral                     string
 	)
-	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&contractAddr, &rec.tokenType, &amount, &collateral, &revealDeadlineSecs, &refundDeadlineSecs, &rec.buyer, &rec.key, &rec.clearRoot, &rec.cipherRoot)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, q, transferID).Scan(&contractAddr, &rec.tokenType, &amount, &collateral, &revealDeadlineSecs, &refundDeadlineSecs, &rec.buyer, &rec.key, &rec.clearRoot, &rec.cipherRoot); err != nil {
 		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
 	}
 
@@ -385,13 +374,11 @@ func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord,
 			log.Printf("ERROR claiming payment: %s", err)
 			return
 		}
-		_, err = bind.WaitMined(ctx, s.client, tx.Hash())
-		if err != nil {
+		if _, err := bind.WaitMined(ctx, s.client, tx.Hash()); err != nil {
 			log.Printf("ERROR awaiting claim-payment transaction: %s", err)
 			return
 		}
-		_, err = s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID)
-		if err != nil {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID); err != nil {
 			log.Printf("ERROR deleting row from transfers table: %s", err)
 		}
 	})

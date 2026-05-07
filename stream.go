@@ -21,23 +21,22 @@ func Receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]by
 	for i := uint64(0); ; i++ {
 		var h [32]byte
 		_, err := io.ReadFull(r, h[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil { // including io.ErrUnexpectedEOF
 			return errors.Wrapf(err, "reading hash %d", i)
 		}
-		err = hashFn(h, i)
-		if err != nil {
+		if err := hashFn(h, i); err != nil {
 			return errors.Wrapf(err, "processing hash %d", i)
 		}
 
 		var chunk [ChunkSize]byte
 		n, err := io.ReadFull(r, chunk[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return errors.Wrapf(errMissingChunk, "reading chunk %d", i)
 		}
-		if err == io.ErrUnexpectedEOF {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
 			if wasPartial {
 				return errors.Wrapf(errPartial, "reading chunk %d", i)
 			}
@@ -45,8 +44,7 @@ func Receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]by
 		} else if err != nil {
 			return errors.Wrapf(err, "reading chunk %d", i)
 		}
-		err = chunkFn(chunk[:n], i)
-		if err != nil {
+		if err := chunkFn(chunk[:n], i); err != nil {
 			return errors.Wrapf(err, "processing chunk %d", i)
 		}
 	}
@@ -68,16 +66,14 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 	err := Receive(
 		r,
 		func(clearHash [32]byte, index uint64) error {
-			err := clearHashes.Add(clearHash[:])
-			if err != nil {
+			if err := clearHashes.Add(clearHash[:]); err != nil {
 				return errors.Wrap(err, "adding hash to ChunkStore")
 			}
 			clearMT.Add(Prefix(index, clearHash[:]))
 			return nil
 		},
 		func(cipherChunk []byte, index uint64) error {
-			err := cipherChunks.Add(cipherChunk)
-			if err != nil {
+			if err := cipherChunks.Add(cipherChunk); err != nil {
 				return errors.Wrap(err, "adding chunk to ChunkStore")
 			}
 			prefixedCipherChunk := Prefix(index, cipherChunk)
@@ -105,21 +101,22 @@ func Serve(w io.Writer, r io.Reader, key [32]byte) ([]byte, error) {
 	for index := uint64(0); ; index++ {
 		var chunk [ChunkSize]byte
 		n, err := io.ReadFull(r, chunk[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
-		} else if err != nil && err != io.ErrUnexpectedEOF {
+		}
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, errors.Wrapf(err, "reading clear chunk %d", index)
 		}
 
 		clearHash := sha256.Sum256(chunk[:n])
-		_, err = w.Write(clearHash[:])
-		if err != nil {
+
+		if _, err := w.Write(clearHash[:]); err != nil {
 			return nil, errors.Wrapf(err, "writing clear hash %d", index)
 		}
 
 		Crypt(key, chunk[:n], index)
-		_, err = w.Write(chunk[:n])
-		if err != nil {
+
+		if _, err := w.Write(chunk[:n]); err != nil {
 			return nil, errors.Wrapf(err, "writing cipher chunk %d", index)
 		}
 

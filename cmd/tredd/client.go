@@ -135,8 +135,7 @@ func get(
 	log.Print("proposing payment")
 
 	var seller common.Address
-	_, err = hex.Decode(seller[:], []byte(sellerHex))
-	if err != nil {
+	if _, err := hex.Decode(seller[:], []byte(sellerHex)); err != nil {
 		return errors.Wrap(err, "decoding seller hex")
 	}
 

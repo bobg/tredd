@@ -93,11 +93,11 @@ func addFile(file, dir, contentType string) error {
 
 	for index := uint64(0); ; index++ {
 		n, err := io.ReadFull(f, chunk[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// "The error is EOF only if no bytes were read."
 			break
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return errors.Wrapf(err, "reading %s", file)
 		}
 		if index == 0 && contentType == "" {
@@ -113,15 +113,13 @@ func addFile(file, dir, contentType string) error {
 
 	p, destName := clearRootPath(dir, clearRoot)
 
-	err = os.MkdirAll(p, 0700)
-	if err != nil {
+	if err := os.MkdirAll(p, 0700); err != nil {
 		return errors.Wrapf(err, "creating dir %s", p)
 	}
 
 	f.Close()
 
-	err = os.WriteFile(path.Join(p, "content-type"), []byte(contentType), 0600)
-	if err != nil {
+	if err := os.WriteFile(path.Join(p, "content-type"), []byte(contentType), 0600); err != nil {
 		return errors.Wrapf(err, "storing content type: %s", err)
 	}
 
@@ -137,8 +135,7 @@ func addFile(file, dir, contentType string) error {
 	}
 	defer dest.Close()
 
-	_, err = io.Copy(dest, f)
-	if err != nil {
+	if _, err := io.Copy(dest, f); err != nil {
 		return errors.Wrapf(err, "copying %s to %s", file, destName)
 	}
 
@@ -160,11 +157,11 @@ func decrypt(_ context.Context, keyHex string, _ []string) error {
 	for index := uint64(0); ; index++ {
 		var buf [tredd.ChunkSize]byte
 		n, err := io.ReadFull(os.Stdin, buf[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// "The error is EOF only if no bytes were read."
 			break
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return errors.Wrap(err, "reading cipher chunk")
 		}
 		tredd.Crypt(key, buf[:n], index)

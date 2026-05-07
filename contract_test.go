@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 
@@ -26,11 +27,11 @@ func TestSolidityMerkleCheck(t *testing.T) {
 	for {
 		var buf [chunksize]byte
 		n, err := io.ReadFull(f, buf[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// "The error is EOF only if no bytes were read."
 			break
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatal(err)
 		}
 		chunks = append(chunks, buf[:n])
@@ -112,31 +113,27 @@ func TestDecrypt(t *testing.T) {
 
 	const chunksize = 256
 	var clear, cipher [chunksize]byte
-	_, err = io.ReadFull(f, clear[:])
-	if err != nil {
+	if _, err := io.ReadFull(f, clear[:]); err != nil {
 		t.Fatal(err)
 	}
 
 	copy(cipher[:], clear[:])
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
-	if err != nil {
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("encrypting did nothing?!")
 	}
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
-	if err != nil {
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("Crypt(Crypt(clear)) != clear ?!")
 	}
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
-	if err != nil {
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,15 +144,13 @@ func TestDecrypt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = harness.Deploy(ctx)
-	if err != nil {
+	if err := harness.Deploy(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Seller
 	txOpts.Value = big.NewInt(2)
-	_, err = bind.Transact(harness.Contract.BoundContract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey))
-	if err != nil {
+	if _, err := bind.Transact(harness.Contract.BoundContract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey)); err != nil {
 		t.Fatal(err)
 	}
 	harness.Sim.Commit()

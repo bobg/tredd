@@ -35,8 +35,7 @@ func TestProposeCancel(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -56,8 +55,7 @@ func TestProposeCancel(t *testing.T) {
 
 	harness.BuyerBalance += 3
 	harness.BuyerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
 		if err != nil {
@@ -82,8 +80,7 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -94,8 +91,7 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -122,8 +118,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -138,8 +133,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -155,8 +149,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.BuyerBalance += 5
 	harness.BuyerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 }
@@ -176,8 +169,7 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -189,8 +181,7 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -220,8 +211,7 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -233,8 +223,7 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -266,8 +255,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -279,8 +267,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -294,8 +281,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.SellerBalance += 5
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
 		if err != nil {
@@ -355,8 +341,7 @@ func createProofs(fraud bool) (clearHash0 [32]byte, cipherChunk0 []byte, clearPr
 	if err != nil {
 		return
 	}
-	err = <-errch
-	if err != nil {
+	if err = <-errch; err != nil {
 		return
 	}
 
