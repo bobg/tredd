@@ -83,7 +83,7 @@ func ProposePayment(
 	return contractAddr, con, rcpts, nil
 }
 
-// After the reveal deadline, if no reveal has happened, the buyer cancels the contract.
+// Cancel cancels the contract if, after the reveal deadline, no reveal has happened.
 func Cancel(ctx context.Context, client clientType, buyer *bind.TransactOpts, con *bind.BoundContract) (*types.Receipt, error) {
 	tx, err := bind.Transact(con, buyer, treddABI.PackCancel())
 	if err != nil {
