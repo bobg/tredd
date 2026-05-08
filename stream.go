@@ -89,7 +89,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 		return nil, errors.Wrapf(errBadClearRoot, "got %x, want %x", gotClearRoot, clearRoot[:])
 	}
 
-	return cipherMT.Root(), err
+	return cipherMT.Root(), nil
 }
 
 // Serve produces a stream of interleaved <clearhash><cipherchunk> pairs from the content in r.

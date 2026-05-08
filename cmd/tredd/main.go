@@ -173,5 +173,5 @@ func decrypt(_ context.Context, keyHex string, _ []string) error {
 
 func abi(_ context.Context, _ []string) error {
 	_, err := fmt.Println(contract.TreddMetaData.ABI)
-	return err
+	return errors.Wrap(err, "printing ABI")
 }

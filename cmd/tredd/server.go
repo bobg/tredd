@@ -354,7 +354,7 @@ func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 		contractAddr = *rec.contractAddr
 	}
 	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], contractAddr, rec.tokenType, rec.amount.String(), rec.collateral.String(), rec.revealDeadline.Unix(), rec.refundDeadline.Unix(), rec.buyer, rec.key, rec.clearRoot, rec.cipherRoot)
-	return err
+	return errors.Wrap(err, "upserting transfer record")
 }
 
 func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error {

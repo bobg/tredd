@@ -250,7 +250,7 @@ func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*
 	}
 	rcpt, err := bind.WaitMined(ctx, client, tx.Hash())
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "waiting for transaction to be mined")
 	}
 	if rcpt.Status == types.ReceiptStatusFailed {
 		return rcpt, fmt.Errorf("transaction %s failed", tx.Hash().Hex())

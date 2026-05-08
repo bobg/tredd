@@ -77,13 +77,13 @@ type testClient struct {
 func NewHarness(ctx context.Context) (*Harness, error) {
 	var curve secp256k1.BitCurve
 	if err := json.Unmarshal([]byte(secp256k1JSON), &curve); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "unmarshaling secp256k1 curve JSON")
 	}
 
 	var buyerKey, sellerKey ecdsa.PrivateKey
 
 	if err := json.Unmarshal([]byte(buyerKeyJSON), &buyerKey); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "unmarshaling buyer key JSON")
 	}
 	buyerKey.Curve = &curve
 	buyer := bind.NewKeyedTransactor(&buyerKey, big.NewInt(1337))
@@ -91,7 +91,7 @@ func NewHarness(ctx context.Context) (*Harness, error) {
 	buyer.GasPrice = big.NewInt(1)
 
 	if err := json.Unmarshal([]byte(sellerKeyJSON), &sellerKey); err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "unmarshaling seller key JSON")
 	}
 	sellerKey.Curve = &curve
 	seller := bind.NewKeyedTransactor(&sellerKey, big.NewInt(1337))
@@ -172,16 +172,16 @@ func (h *Harness) Deploy(ctx context.Context) error {
 func (h *Harness) Balances(ctx context.Context) (buyer, seller *big.Int, err error) {
 	buyer, err = h.Client.BalanceAt(ctx, h.Buyer.From, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "getting buyer balance")
 	}
 	seller, err = h.Client.BalanceAt(ctx, h.Seller.From, nil)
-	return buyer, seller, err
+	return buyer, seller, errors.Wrap(err, "getting seller balance")
 }
 
 func (h *Harness) CheckBalances(ctx context.Context) error {
 	gotBuyer, gotSeller, err := h.Balances(ctx)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "getting balances")
 	}
 	wantBuyer := big.NewInt(int64(h.BuyerBalance))
 	if gotBuyer.Cmp(wantBuyer) != 0 {

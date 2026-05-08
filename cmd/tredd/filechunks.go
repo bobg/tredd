@@ -1,9 +1,10 @@
 package main
 
 import (
-	"errors"
 	"io"
 	"os"
+
+	"github.com/bobg/errors"
 )
 
 type fileChunkStore struct {
@@ -21,7 +22,7 @@ func newFileChunkStore(filename string, chunksize uint64) (*fileChunkStore, erro
 	if os.IsNotExist(err) {
 		// ok
 	} else if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "statting file %q", filename)
 	} else {
 		result.size = uint64(info.Size())
 	}
@@ -31,12 +32,12 @@ func newFileChunkStore(filename string, chunksize uint64) (*fileChunkStore, erro
 func (s *fileChunkStore) Add(bits []byte) error {
 	f, err := os.OpenFile(s.filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "opening file %q for appending", s.filename)
 	}
 	defer f.Close()
 
 	if _, err := f.Write(bits); err != nil {
-		return err
+		return errors.Wrapf(err, "appending to file %q", s.filename)
 	}
 	s.size += uint64(len(bits))
 	return nil
@@ -45,12 +46,12 @@ func (s *fileChunkStore) Add(bits []byte) error {
 func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	f, err := os.Open(s.filename)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "opening file %q", s.filename)
 	}
 	defer f.Close()
 
 	if _, err := f.Seek(int64(index*s.chunksize), io.SeekStart); err != nil { // TODO: range check
-		return nil, err
+		return nil, errors.Wrap(err, "seeking")
 	}
 
 	result := make([]byte, s.chunksize)
@@ -62,7 +63,7 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 			return result[:n], nil
 		}
 	}
-	return result[:n], err
+	return result[:n], errors.Wrapf(err, "reading chunk %d", index)
 }
 
 func (s *fileChunkStore) Len() (uint64, error) {
