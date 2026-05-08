@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 )
@@ -55,7 +56,7 @@ func (s *fileChunkStore) Get(index uint64) ([]byte, error) {
 	result := make([]byte, s.chunksize)
 
 	n, err := io.ReadFull(f, result)
-	if err == io.ErrUnexpectedEOF {
+	if errors.Is(err, io.ErrUnexpectedEOF) {
 		// Partial chunk allowed only at EOF.
 		if index*s.chunksize+uint64(n) == s.size {
 			return result[:n], nil
