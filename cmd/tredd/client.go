@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"github.com/bobg/errors"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/bobg/tredd"
 	"github.com/bobg/tredd/contract"
 )
+
+var clientTreddABI = contract.NewTredd()
 
 func get(
 	ctx context.Context,
@@ -50,11 +52,6 @@ func get(
 		return errors.Wrap(err, "decoding clear root hex")
 	}
 
-	buyer, err := handleKeyfilePassphrase(keyfile, passphrase)
-	if err != nil {
-		return errors.Wrap(err, "handling keyfile and passphrase")
-	}
-
 	var (
 		amount     = new(big.Int)
 		collateral = new(big.Int)
@@ -69,6 +66,16 @@ func get(
 	client, err := ethclient.Dial(ethURL)
 	if err != nil {
 		return errors.Wrapf(err, "dialing Ethereum service at %s", ethURL)
+	}
+
+	chainID, err := client.ChainID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "getting chain ID")
+	}
+
+	buyer, err := handleKeyfilePassphrase(ctx, keyfile, passphrase, chainID)
+	if err != nil {
+		return errors.Wrap(err, "handling keyfile and passphrase")
 	}
 
 	var tokenType common.Address
@@ -87,15 +94,15 @@ func get(
 		vals.Add("token", tokenType.Hex())
 	}
 
-	log.Print("requesting content")
+	log.Print("Requesting content")
 	resp, err := http.PostForm(requestURL, vals)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "making initial HTTP request")
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode/100 != 2 {
-		log.Fatalf("status code %d from initial HTTP request", resp.StatusCode)
+		return fmt.Errorf("non-2xx status code %d from initial HTTP request", resp.StatusCode)
 	}
 
 	var (
@@ -106,20 +113,20 @@ func get(
 
 	clearHashes, err := newFileChunkStore(clearHashesFile, 32)
 	if err != nil {
-		log.Fatalf("creating hash chunk store: %s", err)
+		return errors.Wrap(err, "creating clear hash chunk store")
 	}
 	defer os.Remove(clearHashesFile) // TODO: keep this around if needed to recover from errors
 
 	cipherChunks, err := newFileChunkStore(cipherChunksFile, tredd.ChunkSize)
 	if err != nil {
-		log.Fatalf("creating cipher chunk store: %s", err)
+		return errors.Wrap(err, "creating cipher chunk store")
 	}
 	defer os.Remove(cipherChunksFile) // TODO: keep this around if needed to recover from errors
 
 	log.Print("storing cipher chunks and checking clear hashes")
 	cipherRoot, err := tredd.Get(resp.Body, clearRoot, clearHashes, cipherChunks)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "getting content from HTTP response")
 	}
 
 	var cipherRootBuf [32]byte
@@ -128,14 +135,13 @@ func get(
 	log.Print("proposing payment")
 
 	var seller common.Address
-	_, err = hex.Decode(seller[:], []byte(sellerHex))
-	if err != nil {
-		log.Fatal(err)
+	if _, err := hex.Decode(seller[:], []byte(sellerHex)); err != nil {
+		return errors.Wrap(err, "decoding seller hex")
 	}
 
 	contractAddr, con, _, err := tredd.ProposePayment(ctx, client, buyer, seller, tokenType, amount, collateral, clearRoot, cipherRootBuf, revealDeadline, refundDeadline)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "deploying propose-payment contract")
 	}
 
 	vals = url.Values{}
@@ -143,14 +149,14 @@ func get(
 	vals.Add("contractaddr", contractAddr.Hex())
 	resp, err = http.PostForm(proposeURL, vals)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "making propose-payment HTTP request")
 	}
 	defer resp.Body.Close()
 
 	evChan := make(chan *contract.TreddEvDecryptionKey)
-	sub, err := con.WatchEvDecryptionKey(&bind.WatchOpts{Context: ctx}, evChan)
+	sub, err := bind.WatchEvents(con, &bind.WatchOpts{Context: ctx}, clientTreddABI.UnpackEvDecryptionKeyEvent, evChan)
 	if err != nil {
-		log.Fatal(err)
+		return errors.Wrap(err, "watching for decryption key event")
 	}
 	defer sub.Unsubscribe()
 	subErrChan := sub.Err()
@@ -183,9 +189,8 @@ func get(
 		}
 		defer out.Close()
 
-		var bchErr tredd.BadClearHashError
 		err = tredd.Decrypt(out, clearHashes, cipherChunks, ev.DecryptionKey)
-		if errors.As(err, &bchErr) {
+		if bchErr, ok := errors.AsType[tredd.BadClearHashError](err); ok {
 			// Validation failed, claim a refund.
 
 			log.Printf("decryption failed on chunk %d; now claiming refund", bchErr.Index)
@@ -204,7 +209,7 @@ func get(
 			return nil
 
 		} else if err != nil {
-			log.Fatalf("Error decrypting content: %s", err)
+			return errors.Wrap(err, "decrypting content after decryption key reveal")
 		}
 		log.Printf("Complete, decrypted content is in %s", outFileName)
 		return nil

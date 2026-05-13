@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"github.com/bobg/errors"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind/backends"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
@@ -47,18 +45,13 @@ const (
 )
 
 func init() {
-	_, err := hex.Decode(DecryptionKey[:], []byte(decryptionKeyHex))
-	if err != nil {
+	if _, err := hex.Decode(DecryptionKey[:], []byte(decryptionKeyHex)); err != nil {
 		panic(err)
 	}
-
-	_, err = hex.Decode(ClearRoot[:], []byte(udhrClearRootHex))
-	if err != nil {
+	if _, err := hex.Decode(ClearRoot[:], []byte(udhrClearRootHex)); err != nil {
 		panic(err)
 	}
-
-	_, err = hex.Decode(CipherRoot[:], []byte(udhrCipherRootHex))
-	if err != nil {
+	if _, err := hex.Decode(CipherRoot[:], []byte(udhrCipherRootHex)); err != nil {
 		panic(err)
 	}
 }
@@ -66,47 +59,48 @@ func init() {
 type Harness struct {
 	Buyer, Seller                  *bind.TransactOpts
 	Sim                            *simulated.Backend
-	Client                         *backends.SimulatedBackend
+	Client                         *testClient
 	RevealDeadline, RefundDeadline time.Time
 	ContractAddr                   common.Address // only set after Harness.Deploy is called
-	Contract                       *contract.Tredd
+	Contract                       contract.Instance
 	BuyerBalance, SellerBalance    uint64 // caller updates these then calls CheckBalances
 }
 
-func NewHarness() (*Harness, error) {
+// testClient wraps a simulated backend and its client together, exposing
+// both the ContractBackend/DeployBackend methods (from the client) and
+// the Commit method (from the backend) that is needed by waitMined.
+type testClient struct {
+	*simulated.Backend
+	simulated.Client
+}
+
+func NewHarness(ctx context.Context) (*Harness, error) {
 	var curve secp256k1.BitCurve
-	err := json.Unmarshal([]byte(secp256k1JSON), &curve)
-	if err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(secp256k1JSON), &curve); err != nil {
+		return nil, errors.Wrap(err, "unmarshaling secp256k1 curve JSON")
 	}
 
 	var buyerKey, sellerKey ecdsa.PrivateKey
 
-	err = json.Unmarshal([]byte(buyerKeyJSON), &buyerKey)
-	if err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(buyerKeyJSON), &buyerKey); err != nil {
+		return nil, errors.Wrap(err, "unmarshaling buyer key JSON")
 	}
 	buyerKey.Curve = &curve
-	buyer, err := bind.NewKeyedTransactorWithChainID(&buyerKey, big.NewInt(1337))
-	if err != nil {
-		return nil, err
-	}
+	buyer := bind.NewKeyedTransactor(&buyerKey, big.NewInt(1337))
+	buyer.Context = ctx
 	buyer.GasPrice = big.NewInt(1)
 
-	err = json.Unmarshal([]byte(sellerKeyJSON), &sellerKey)
-	if err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(sellerKeyJSON), &sellerKey); err != nil {
+		return nil, errors.Wrap(err, "unmarshaling seller key JSON")
 	}
 	sellerKey.Curve = &curve
-	seller, err := bind.NewKeyedTransactorWithChainID(&sellerKey, big.NewInt(1337))
-	if err != nil {
-		return nil, err
-	}
+	seller := bind.NewKeyedTransactor(&sellerKey, big.NewInt(1337))
+	seller.Context = ctx
 	seller.GasPrice = big.NewInt(1)
 
-	alloc := core.GenesisAlloc{
-		buyer.From:  core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
-		seller.From: core.GenesisAccount{Balance: big.NewInt(StartingBalance)},
+	alloc := types.GenesisAlloc{
+		buyer.From:  types.Account{Balance: big.NewInt(StartingBalance)},
+		seller.From: types.Account{Balance: big.NewInt(StartingBalance)},
 	}
 
 	// Use simulated.NewBackend directly so we can set the genesis base fee to
@@ -121,10 +115,6 @@ func NewHarness() (*Harness, error) {
 			ethConf.Genesis.BaseFee = big.NewInt(0)
 		},
 	)
-	client := &backends.SimulatedBackend{
-		Backend: sim,
-		Client:  sim.Client(),
-	}
 
 	now := time.Now()
 
@@ -132,7 +122,7 @@ func NewHarness() (*Harness, error) {
 		Buyer:          buyer,
 		Seller:         seller,
 		Sim:            sim,
-		Client:         client,
+		Client:         &testClient{Backend: sim, Client: sim.Client()},
 		RevealDeadline: now.Add(RevealDeadlineSecs * time.Second),
 		RefundDeadline: now.Add(RefundDeadlineSecs * time.Second),
 		BuyerBalance:   StartingBalance,
@@ -145,40 +135,53 @@ var (
 	big3 = big.NewInt(3)
 )
 
+var treddABI = contract.NewTredd()
+
 func (h *Harness) Deploy(ctx context.Context) error {
-	addr, _, con, err := contract.DeployTredd(h.Buyer, h.Client, h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, uint64(h.RevealDeadline.Unix()), uint64(h.RefundDeadline.Unix()))
+	constructorInput := treddABI.PackConstructor(h.Seller.From, common.Address{}, big3, big2, ClearRoot, CipherRoot, uint64(h.RevealDeadline.Unix()), uint64(h.RefundDeadline.Unix()))
+	addr, deployTx, err := bind.DeployContract(h.Buyer, common.FromHex(contract.TreddMetaData.Bin), h.Client, constructorInput)
 	if err != nil {
 		return errors.Wrap(err, "deploying tredd contract")
 	}
+	h.Sim.Commit()
 
+	// Wait for deployment to be mined.
+	if _, err := bind.WaitMined(ctx, h.Client, deployTx.Hash()); err != nil {
+		return errors.Wrap(err, "waiting for contract deployment")
+	}
+
+	// Transfer the buyer payment to the contract (ETH path: send ETH to contract).
 	txOpts := *h.Buyer
 	txOpts.Value = big3
-	raw := &contract.TreddRaw{Contract: con}
-
-	_, err = raw.Transfer(&txOpts)
+	instance := contract.NewInstance(h.Client, addr)
+	transferTx, err := instance.Transfer(&txOpts)
 	if err != nil {
-		return errors.Wrap(err, "transfering buyer payment to contract")
+		return errors.Wrap(err, "transferring buyer payment to contract")
 	}
 	h.Sim.Commit()
 
+	if _, err := bind.WaitMined(ctx, h.Client, transferTx.Hash()); err != nil {
+		return errors.Wrap(err, "waiting for payment transfer")
+	}
+
 	h.ContractAddr = addr
-	h.Contract = con
+	h.Contract = instance
 	return nil
 }
 
 func (h *Harness) Balances(ctx context.Context) (buyer, seller *big.Int, err error) {
 	buyer, err = h.Client.BalanceAt(ctx, h.Buyer.From, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "getting buyer balance")
 	}
 	seller, err = h.Client.BalanceAt(ctx, h.Seller.From, nil)
-	return buyer, seller, err
+	return buyer, seller, errors.Wrap(err, "getting seller balance")
 }
 
 func (h *Harness) CheckBalances(ctx context.Context) error {
 	gotBuyer, gotSeller, err := h.Balances(ctx)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "getting balances")
 	}
 	wantBuyer := big.NewInt(int64(h.BuyerBalance))
 	if gotBuyer.Cmp(wantBuyer) != 0 {

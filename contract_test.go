@@ -2,17 +2,16 @@ package tredd
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"io"
 	"math/big"
 	"os"
 	"testing"
 
+	"github.com/bobg/errors"
 	"github.com/bobg/merkle/v2"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 
-	"github.com/bobg/tredd/contract"
 	"github.com/bobg/tredd/testutil"
 )
 
@@ -28,24 +27,24 @@ func TestSolidityMerkleCheck(t *testing.T) {
 	for {
 		var buf [chunksize]byte
 		n, err := io.ReadFull(f, buf[:])
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			// "The error is EOF only if no bytes were read."
 			break
 		}
-		if err != nil && err != io.ErrUnexpectedEOF {
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatal(err)
 		}
 		chunks = append(chunks, buf[:n])
 	}
 
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-	err = harness.Deploy(ctx)
-	if err != nil {
+	if err := harness.Deploy(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,9 +68,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		copy(hashRoot[:], hashTree.Root())
 		hashProof := hashTree.Proof()
 
-		callopts := new(bind.CallOpts)
-
-		ok, err := harness.Contract.CheckProofWithPrefixedChunk(callopts, contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot)
+		ok, err := harness.Contract.CheckProofWithPrefixedChunk(ctx, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +76,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 			t.Error("chunkTree proof validation failed")
 		}
 
-		ok, err = harness.Contract.CheckProofWithPrefixedHash(callopts, contract.Proof(hashProof), uint64(i), refhash, hashRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(ctx, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +85,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refchunk[0] ^= 1
-		ok, err = harness.Contract.CheckProofWithPrefixedChunk(callopts, contract.Proof(chunkProof), uint64(i), refchunk, chunkRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedChunk(ctx, chunkProof, uint64(i), refchunk, chunkRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,7 +94,7 @@ func TestSolidityMerkleCheck(t *testing.T) {
 		}
 
 		refhash[0] ^= 1
-		ok, err = harness.Contract.CheckProofWithPrefixedHash(callopts, contract.Proof(hashProof), uint64(i), refhash, hashRoot)
+		ok, err = harness.Contract.CheckProofWithPrefixedHash(ctx, hashProof, uint64(i), refhash, hashRoot)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,57 +113,49 @@ func TestDecrypt(t *testing.T) {
 
 	const chunksize = 256
 	var clear, cipher [chunksize]byte
-	_, err = io.ReadFull(f, clear[:])
-	if err != nil {
+	if _, err := io.ReadFull(f, clear[:]); err != nil {
 		t.Fatal(err)
 	}
 
 	copy(cipher[:], clear[:])
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
-	if err != nil {
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("encrypting did nothing?!")
 	}
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
-	if err != nil {
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(cipher[:], clear[:]) {
 		t.Fatal("Crypt(Crypt(clear)) != clear ?!")
 	}
 
-	err = Crypt(testutil.DecryptionKey, cipher[:], 0)
+	if err := Crypt(testutil.DecryptionKey, cipher[:], 0); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	harness, err := testutil.NewHarness()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := context.Background()
-
-	err = harness.Deploy(ctx)
-	if err != nil {
+	if err := harness.Deploy(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	txOpts := *harness.Seller
 	txOpts.Value = big.NewInt(2)
-	_, err = harness.Contract.Reveal(&txOpts, testutil.DecryptionKey)
-	if err != nil {
+	if _, err := bind.Transact(harness.Contract.BoundContract, &txOpts, treddABI.PackReveal(testutil.DecryptionKey)); err != nil {
 		t.Fatal(err)
 	}
 	harness.Sim.Commit()
 
-	callopts := new(bind.CallOpts)
-
-	got, err := harness.Contract.Decrypt(callopts, cipher[:], 0)
+	got, err := harness.Contract.Decrypt(cipher[:])
 	if err != nil {
 		t.Fatal(err)
 	}

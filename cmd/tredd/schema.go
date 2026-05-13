@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS transfers (
 
 func setSchema(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, schema)
-	return err
+	return errors.Wrap(err, "setting schema")
 }
 
 func openDB(ctx context.Context, filename string) (*sql.DB, error) {

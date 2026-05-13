@@ -19,7 +19,7 @@ import (
 	"github.com/bobg/errors"
 	"github.com/bobg/mid"
 	"github.com/bobg/seqs"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 
@@ -27,6 +27,8 @@ import (
 
 	"github.com/bobg/tredd"
 )
+
+var serverTreddABI = contract.NewTredd()
 
 func serve(
 	ctx context.Context,
@@ -44,14 +46,19 @@ func serve(
 	}
 	defer db.Close()
 
-	seller, err := handleKeyfilePassphrase(keyfile, passphrase)
-	if err != nil {
-		return errors.Wrap(err, "handling keyfile and passphrase")
-	}
-
 	client, err := ethclient.Dial(ethURL)
 	if err != nil {
 		return errors.Wrapf(err, "dialing Ethereum service at %s", ethURL)
+	}
+
+	chainID, err := client.ChainID(ctx)
+	if err != nil {
+		return errors.Wrap(err, "getting chain ID")
+	}
+
+	seller, err := handleKeyfilePassphrase(ctx, keyfile, passphrase, chainID)
+	if err != nil {
+		return errors.Wrap(err, "handling keyfile and passphrase")
 	}
 
 	s := &server{
@@ -132,8 +139,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	buyer := common.HexToAddress(buyerHex)
 
 	var clearRoot [32]byte
-	_, err := hex.Decode(clearRoot[:], []byte(clearRootHex))
-	if err != nil {
+	if _, err := hex.Decode(clearRoot[:], []byte(clearRootHex)); err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "decoding clear root")}
 	}
 
@@ -169,8 +175,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return fmt.Errorf("got collateral = %s, should be 1 or greater", collateral)
 	}
 
-	err = s.checkPrice(tokenType, amount, collateral, clearRoot)
-	if err != nil {
+	if err := s.checkPrice(tokenType, amount, collateral, clearRoot); err != nil {
 		return mid.CodeErr{C: http.StatusBadRequest, Err: errors.Wrap(err, "proposed payment rejected")}
 	}
 
@@ -198,12 +203,10 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 
 	var key, transferID [32]byte
 
-	_, err = rand.Read(transferID[:])
-	if err != nil {
+	if _, err := rand.Read(transferID[:]); err != nil {
 		return errors.Wrap(err, "choosing transfer ID")
 	}
-	_, err = rand.Read(key[:])
-	if err != nil {
+	if _, err := rand.Read(key[:]); err != nil {
 		return errors.Wrap(err, "choosing cipher key")
 	}
 
@@ -227,8 +230,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 	var cipherRootBuf [32]byte
 	copy(cipherRootBuf[:], cipherRoot)
 
-	err = tmpfile.Close()
-	if err != nil {
+	if err := tmpfile.Close(); err != nil {
 		return errors.Wrap(err, "closing response tempfile")
 	}
 
@@ -245,8 +247,7 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		cipherRoot:     cipherRootBuf,
 	}
 
-	err = s.storeRecord(req.Context(), rec)
-	if err != nil {
+	if err := s.storeRecord(req.Context(), rec); err != nil {
 		return errors.Wrap(err, "storing transfer record")
 	}
 
@@ -255,12 +256,9 @@ func (s *server) serve(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "reopening response tempfile")
 	}
 	defer tmpfile.Close()
-	_, err = io.Copy(w, tmpfile)
-	if err != nil {
-		return errors.Wrap(err, "writing response")
-	}
 
-	return nil
+	_, err = io.Copy(w, tmpfile)
+	return errors.Wrap(err, "writing response")
 }
 
 func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
@@ -282,8 +280,7 @@ func (s *server) revealKey(w http.ResponseWriter, req *http.Request) error {
 		return errors.Wrap(err, "finding transfer record")
 	}
 	rec.contractAddr = &contractAddr
-	err = s.storeRecord(ctx, rec)
-	if err != nil {
+	if err := s.storeRecord(ctx, rec); err != nil {
 		return errors.Wrap(err, "updating transfer record")
 	}
 
@@ -325,8 +322,7 @@ func (s *server) getRecord(ctx context.Context, transferID []byte) (*serverRecor
 		revealDeadlineSecs, refundDeadlineSecs int64
 		amount, collateral                     string
 	)
-	err := s.db.QueryRowContext(ctx, q, transferID).Scan(&contractAddr, &rec.tokenType, &amount, &collateral, &revealDeadlineSecs, &refundDeadlineSecs, &rec.buyer, &rec.key, &rec.clearRoot, &rec.cipherRoot)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, q, transferID).Scan(&contractAddr, &rec.tokenType, &amount, &collateral, &revealDeadlineSecs, &refundDeadlineSecs, &rec.buyer, &rec.key, &rec.clearRoot, &rec.cipherRoot); err != nil {
 		return nil, errors.Wrapf(err, "querying transfer record %x from db", transferID)
 	}
 
@@ -358,7 +354,7 @@ func (s *server) storeRecord(ctx context.Context, rec *serverRecord) error {
 		contractAddr = *rec.contractAddr
 	}
 	_, err := s.db.ExecContext(ctx, q, rec.transferID[:], contractAddr, rec.tokenType, rec.amount.String(), rec.collateral.String(), rec.revealDeadline.Unix(), rec.refundDeadline.Unix(), rec.buyer, rec.key, rec.clearRoot, rec.cipherRoot)
-	return err
+	return errors.Wrap(err, "upserting transfer record")
 }
 
 func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error {
@@ -366,28 +362,23 @@ func (s *server) queueClaimPayment(ctx context.Context, transferID []byte) error
 	if err != nil {
 		return errors.Wrap(err, "reading transfer record")
 	}
-	con, err := contract.NewTredd(*rec.contractAddr, s.client)
-	if err != nil {
-		return errors.Wrap(err, "instantiating contract")
-	}
+	con := serverTreddABI.Instance(s.client, *rec.contractAddr)
 	s.queueClaimPaymentHelper(ctx, rec, con)
 	return nil
 }
 
-func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord, con *contract.Tredd) {
+func (s *server) queueClaimPaymentHelper(ctx context.Context, rec *serverRecord, con *bind.BoundContract) {
 	time.AfterFunc(time.Until(rec.refundDeadline), func() {
-		tx, err := con.ClaimPayment(s.seller)
+		tx, err := bind.Transact(con, s.seller, serverTreddABI.PackClaimPayment())
 		if err != nil {
 			log.Printf("ERROR claiming payment: %s", err)
 			return
 		}
-		_, err = bind.WaitMined(ctx, s.client, tx)
-		if err != nil {
+		if _, err := bind.WaitMined(ctx, s.client, tx.Hash()); err != nil {
 			log.Printf("ERROR awaiting claim-payment transaction: %s", err)
 			return
 		}
-		_, err = s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID)
-		if err != nil {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM transfers WHERE transfer_id = $1`, rec.transferID); err != nil {
 			log.Printf("ERROR deleting row from transfers table: %s", err)
 		}
 	})

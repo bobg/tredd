@@ -1,7 +1,6 @@
 package tredd
 
 import (
-	"context"
 	"crypto/sha256"
 	"io"
 	"math/big"
@@ -22,12 +21,12 @@ var (
 )
 
 func TestProposeCancel(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, con, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -36,8 +35,7 @@ func TestProposeCancel(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -57,8 +55,7 @@ func TestProposeCancel(t *testing.T) {
 
 	harness.BuyerBalance += 3
 	harness.BuyerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
 		if err != nil {
@@ -69,12 +66,12 @@ func TestProposeCancel(t *testing.T) {
 }
 
 func TestProposeRevealCancel(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -83,8 +80,7 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -95,8 +91,7 @@ func TestProposeRevealCancel(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -109,12 +104,12 @@ func TestProposeRevealCancel(t *testing.T) {
 }
 
 func TestProposeRevealRefundOK(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -123,8 +118,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -139,8 +133,7 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -156,19 +149,18 @@ func TestProposeRevealRefundOK(t *testing.T) {
 
 	harness.BuyerBalance += 5
 	harness.BuyerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 }
 
 func TestProposeRevealRefundFail(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -177,8 +169,7 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -190,8 +181,7 @@ func TestProposeRevealRefundFail(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -207,12 +197,12 @@ func TestProposeRevealRefundFail(t *testing.T) {
 }
 
 func TestProposeRevealRefundFraud(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -221,8 +211,7 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -234,8 +223,7 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -253,12 +241,12 @@ func TestProposeRevealRefundFraud(t *testing.T) {
 }
 
 func TestProposeRevealClaimPayment(t *testing.T) {
-	harness, err := testutil.NewHarness()
+	ctx := t.Context()
+
+	harness, err := testutil.NewHarness(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	contractAddr, _, rcpts, err := ProposePayment(ctx, harness.Client, harness.Buyer, harness.Seller.From, common.Address{}, big3, big2, testutil.ClearRoot, testutil.CipherRoot, harness.RevealDeadline, harness.RefundDeadline)
 	if err != nil {
@@ -267,8 +255,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.BuyerBalance -= 3
 	harness.BuyerBalance -= gasUsed(rcpts)
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -280,8 +267,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.SellerBalance -= 2
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 	}
 
@@ -295,8 +281,7 @@ func TestProposeRevealClaimPayment(t *testing.T) {
 
 	harness.SellerBalance += 5
 	harness.SellerBalance -= rcpt.GasUsed
-	err = harness.CheckBalances(ctx)
-	if err != nil {
+	if err := harness.CheckBalances(ctx); err != nil {
 		t.Error(err)
 		contractBal, err := harness.Client.BalanceAt(ctx, contractAddr, nil)
 		if err != nil {
@@ -356,8 +341,7 @@ func createProofs(fraud bool) (clearHash0 [32]byte, cipherChunk0 []byte, clearPr
 	if err != nil {
 		return
 	}
-	err = <-errch
-	if err != nil {
+	if err = <-errch; err != nil {
 		return
 	}
 

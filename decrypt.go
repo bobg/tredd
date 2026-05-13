@@ -35,8 +35,7 @@ func Decrypt(w io.Writer, clearHashes, cipherChunks ChunkStore, key [32]byte) er
 			return BadClearHashError{Index: index}
 		}
 
-		_, err = w.Write(chunk)
-		if err != nil {
+		if _, err := w.Write(chunk); err != nil {
 			return errors.Wrapf(err, "writing clear chunk %d", index)
 		}
 	}

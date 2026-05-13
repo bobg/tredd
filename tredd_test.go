@@ -20,14 +20,12 @@ func TestServeGetDecrypt(t *testing.T) {
 	)
 
 	var key [32]byte
-	_, err := hex.Decode(key[:], []byte(testKeyHex))
-	if err != nil {
+	if _, err := hex.Decode(key[:], []byte(testKeyHex)); err != nil {
 		t.Fatal(err)
 	}
 
 	var clearRoot [32]byte
-	_, err = hex.Decode(clearRoot[:], []byte(clearRootHex))
-	if err != nil {
+	if _, err := hex.Decode(clearRoot[:], []byte(clearRootHex)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,8 +63,7 @@ func TestServeGetDecrypt(t *testing.T) {
 	}
 
 	decrypted := new(bytes.Buffer)
-	err = Decrypt(decrypted, clearHashes, cipherChunks, key)
-	if err != nil {
+	if err := Decrypt(decrypted, clearHashes, cipherChunks, key); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(decrypted.Bytes(), text) {
@@ -76,8 +73,7 @@ func TestServeGetDecrypt(t *testing.T) {
 
 func BenchmarkCrypt(b *testing.B) {
 	var key [32]byte
-	_, err := hex.Decode(key[:], []byte(testKeyHex))
-	if err != nil {
+	if _, err := hex.Decode(key[:], []byte(testKeyHex)); err != nil {
 		b.Fatal(err)
 	}
 
@@ -87,9 +83,7 @@ func BenchmarkCrypt(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Crypt(key, chunk, 0)
 	}
 }
