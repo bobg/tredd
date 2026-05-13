@@ -11,8 +11,8 @@ and includes a demonstration client and server
 
 - A buyer sends a request for some content to a seller.
 - The seller responds with an encrypted copy of the content.
-- The buyer proposes payment by publishing a payment-proposal contract to the blockchain.
-- The seller accepts payment on-chain by revealing the decryption key, together with a collateral payment.
+- The buyer publishes a payment-proposal contract to the blockchain.
+- The seller reveals the decryption key via the contract, together with a collateral payment.
 - The buyer verifies the content and decryption key, releasing payment and returning the collateral to the seller.
 - If the content or decryption key cannot be verified, the buyer recovers the proposed payment and keeps the collateral.
 
