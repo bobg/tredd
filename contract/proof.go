@@ -6,6 +6,7 @@ import (
 	"github.com/bobg/merkle/v2"
 )
 
+// Proof constructs a sequence of [TreddProofSteps] from a [merkle.Proof].
 func Proof(proof merkle.Proof) []TreddProofStep {
 	result := make([]TreddProofStep, 0, len(proof.Steps))
 	for _, step := range proof.Steps {

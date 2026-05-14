@@ -203,8 +203,7 @@ func RevealKey(
 	return con.BoundContract, receipt, errors.Wrap(err, "waiting for reveal tx to be mined")
 }
 
-// ClaimPayment constructs a seller-claims-payment transaction,
-// rehydrating and invoking a Tredd contract from the utxo state (identified by the information in r).
+// ClaimPayment constructs a seller-claims-payment transaction.
 func ClaimPayment(
 	ctx context.Context,
 	client clientType,
@@ -219,9 +218,7 @@ func ClaimPayment(
 	return waitMined(ctx, client, tx)
 }
 
-// ClaimRefund constructs a buyer-claims-refund transaction,
-// rehydrating a Tredd contract from the utxo state (identified by the information in r)
-// and calling it with the necessary proofs and other information.
+// ClaimRefund constructs a buyer-claims-refund transaction.
 func ClaimRefund(
 	ctx context.Context,
 	client clientType,
@@ -260,6 +257,7 @@ func waitMined(ctx context.Context, client clientType, tx *types.Transaction) (*
 
 var ethAddr common.Address
 
+// IsETH reports whether tokenType is the special address that represents ETH.
 func IsETH(tokenType common.Address) bool {
 	return tokenType == ethAddr
 }

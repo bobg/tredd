@@ -14,8 +14,8 @@ var (
 	errPartial      = errors.New("partial non-final chunk")
 )
 
-// Receive reads the output of Serve and alternately call hashFn and chunkFn on each hash/cipherchunk pair.
-func Receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]byte, uint64) error) error {
+// receive reads the output of Serve and alternately calls hashFn and chunkFn on each hash/cipherchunk pair.
+func receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]byte, uint64) error) error {
 	var wasPartial bool
 
 	for i := uint64(0); ; i++ {
@@ -52,7 +52,7 @@ func Receive(r io.Reader, hashFn func([32]byte, uint64) error, chunkFn func([]by
 
 // Get parses a stream of interleaved <clearhash><cipherchunk> pairs,
 // placing them in their respective ChunkStores.
-// It uses Receive to handle the output of Serve.
+// It uses receive to handle the output of Serve.
 // Along the way it compares the clear hashes' Merkle root hash to the expected value in clearRoot.
 // If it finds a mismatch it returns errBadClearRoot.
 // If there is no error, the Merkle root hash of the cipher chunks is returned.
@@ -63,7 +63,7 @@ func Get(r io.Reader, clearRoot [32]byte, clearHashes, cipherChunks ChunkStore) 
 		cipherMT = merkle.NewTree(sha256.New())
 	)
 
-	err := Receive(
+	err := receive(
 		r,
 		func(clearHash [32]byte, index uint64) error {
 			if err := clearHashes.Add(clearHash[:]); err != nil {

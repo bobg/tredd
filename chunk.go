@@ -25,6 +25,7 @@ type ChunkStore interface {
 
 var errMissingChunk = errors.New("missing chunk")
 
+// Crypt encrypts the chunk by xoring it with hashes derived from key and index.
 func Crypt(key [32]byte, chunk []byte, index uint64) error {
 	var (
 		hasher = sha256.New()
@@ -35,7 +36,7 @@ func Crypt(key [32]byte, chunk []byte, index uint64) error {
 		// compute subchunk key
 		hasher.Reset()
 
-		inp := SubchunkKeyParams(key, index, uint64(i))
+		inp := subchunkKeyParams(key, index, uint64(i))
 
 		hasher.Write(inp)
 		hasher.Sum(subkey[:0])
@@ -50,6 +51,7 @@ func Crypt(key [32]byte, chunk []byte, index uint64) error {
 	return nil
 }
 
+// PrepareForRefund prepares the data needed to refund a proposed payment when there is a bad chunk at the given index.
 func PrepareForRefund(index uint64, clearHashes, cipherChunks ChunkStore) (clearHashN [32]byte, cipherChunkN []byte, clearProof, cipherProof merkle.Proof, err error) {
 	var n uint64
 	n, err = clearHashes.Len()

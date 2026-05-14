@@ -312,7 +312,7 @@ func createProofs(fraud bool) (clearHash0 [32]byte, cipherChunk0 []byte, clearPr
 		clearMT  *merkle.Tree
 		cipherMT *merkle.Tree
 	)
-	err = Receive(
+	err = receive(
 		pr,
 		func(clearHash [32]byte, i uint64) error {
 			prefixedClearHash := Prefix(i, clearHash[:])
